@@ -1,0 +1,14 @@
+{
+  "name": "claude-skills",
+  "description": "zyoussef's skills for Claude Code.",
+  "owner": {
+    "name": "zyoussef"
+  },
+  "plugins": [
+    {
+      "name": "wrap-up",
+      "source": "./plugins/wrap-up",
+      "description": "End-of-session memory update: records what's worth keeping in project memory and proposes changes to ~/.claude/CLAUDE.md for approval."
+    }
+  ]
+}

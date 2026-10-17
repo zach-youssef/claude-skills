@@ -1,0 +1,9 @@
+{
+  "name": "wrap-up",
+  "version": "1.0.0",
+  "description": "End-of-session memory update: records what's worth keeping in project memory and proposes changes to ~/.claude/CLAUDE.md for approval.",
+  "author": {
+    "name": "zyoussef"
+  },
+  "license": "MIT"
+}
