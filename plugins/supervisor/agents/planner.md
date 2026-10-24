@@ -20,3 +20,6 @@ Return a task graph:
 
 Prefer more, smaller tasks that can each be committed and reviewed on their own. Be concrete
 about files. Don't pad.
+
+Unlike other workers, you can't write to your task file: return the full report, and the
+supervisor writes it into the task file.

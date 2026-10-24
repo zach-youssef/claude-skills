@@ -42,6 +42,9 @@ delegates and owns memory; workers go deep on one task each and are discarded af
   worktrees) lives in `~/code/.supervisor/`, so a restarted supervisor reconciles it with git and
   CI and re-spawns workers from their checkpoints. `orchestrate/ledger.py` edits ledger rows by
   id and fails loudly when the id matches no row or several (tests: `test_ledger.sh`).
+- Lean supervisor context: workers append their full reports (reviewers their findings) to the
+  task file and hand back about 10 lines; findings reach the implementer by pointer, and small
+  fix-only re-reviews resume the previous reviewer.
 
 To have a new `~/code` session print the ledger, add this SessionStart hook to
 `~/.claude/settings.json` (it isn't in a plugin `hooks.json`, since the plugin is symlinked rather

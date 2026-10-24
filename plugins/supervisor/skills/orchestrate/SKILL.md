@@ -57,6 +57,17 @@ Spawn workers in the background with `run_in_background`. Each brief contains:
 - **The task file** `~/code/.supervisor/tasks/<id>.md`. Write the brief there first, then pass
   its path. The worker appends checkpoints to it, which is what lets work resume.
 
+**Reports go to the task file, not your context.** Every worker appends its full report to the
+**end** of the task file under its own heading, `## Report (<agent>, <sha or date>)` (reviewers
+`## Review N (<sha>)`), with the report's sections at `###`. It hands back at most about 10
+lines: the status, the commit sha, the verdict or counts, and that heading as the pointer. When
+a heading repeats (a rerun), the last one counts. Read the full report only when the handback
+isn't enough to decide the next step. Reviewers and test-runners have no Write or Edit tools, so
+they append with one quoted heredoc (`cat >> <task file>`), limited to that file. Planners are
+read-only, so they return the full report and you write it into the task file. Helpers return
+their result inline by default, since it's usually text you need right away; ask for the task
+file in the brief when it's long.
+
 ## 3b. Keep state durable so everything can resume
 
 A session can be interrupted at any moment, and worker contexts and agent ids don't survive it.
@@ -85,18 +96,18 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
   updates, and replaces the file atomically:
   ```
   ledger.py add <id> repo=<repo> branch=<branch> worktree=<path> agent=implementer stage=implementing next-action="…"
-  ledger.py set <id> stage="review 1" agent="reviewer <agent-id>" commit=<sha> next-action="…"
+  ledger.py set <id> stage="review 1" commit=<sha> next-action="…"
   ledger.py show <id>
   ledger.py delete <id>
   ```
   Fields are the column names, case-insensitive, with `-` for spaces (`ci`, `next-action`); an
   empty value stores `—`. `add` creates the ledger if it's missing. Edit the notes below the
   table as before. Tests: `test_ledger.sh [<copy of a ledger>]`, never on the real file.
-- **`tasks/<id>.md`:** the brief, the worker's `## Checkpoints`, every `## Reports` entry
-  (status, decisions, learnings), review findings and CI or test failure reports. Workers append
-  their own checkpoints and reports; you write findings, failures and the user's decisions
-  there **before** relaying them or spawning the next worker. Nothing a later step needs may live
-  only in your context.
+- **`tasks/<id>.md`:** the brief, the worker's `## Checkpoints`, every `## Report (…)`
+  (status, decisions, learnings), review findings (`## Review N (…)`) and CI or test failure
+  reports. Workers append their own checkpoints, reports and findings; you write planner
+  reports and the user's decisions there **before** acting on them or spawning the next worker.
+  Nothing a later step needs may live only in your context.
 - **Worktrees** (`worktrees/<repo>/<branch>`) keep the code, committed or not.
 
 **Resuming** (a SessionStart hook prints the ledger in `~/code`; otherwise read it first):
@@ -105,8 +116,17 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
      branch and worktree are expected;
    - `git -C <worktree> status` (including a rebase in progress) and `git log`;
    - whether the local branch, `origin/<branch>` and the ledger's commit are the same sha. If
-     the branch moved after review or CI, the stage goes back to `review N`;
+     the branch moved after review or CI (`pushed`, `ci`, `awaiting-merge` or later), the stage
+     goes back to `review N+1`, for the new commit. At `addressing N` or `fixing` a moving
+     branch is expected: go to `review N+1` only if the worktree is clean and the task file has
+     `## Report (implementer|fixer, <first 7 chars of HEAD>` with status ready-for-review or
+     fixed (not blocked or escalated), unless it's a fixer report marked `wording-only`, which
+     skips the review (step 3 of the lifecycle); otherwise resume that worker (step 2);
    - CI for that exact commit (`gh run list --commit <sha>`);
+   - at `review N`: whether the task file already has the review of the ledger's commit
+     (`grep -n '^## Review N (<first 7 chars of the sha>' <task file>`). If it does, the
+     reviewer finished: move to `addressing N` (or on, if it said clean) instead of reviewing
+     again. Likewise `## Report (test-runner, <sha>)` for the ledger's commit at `ci`;
    - only at `merging` or later: whether it's merged
      (`git -C <repo> merge-base --is-ancestor <commit> origin/<default>`). Before that stage the
      check means nothing, since a branch with no commits yet is trivially an ancestor.
@@ -115,9 +135,11 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
    isn't on the remote), move it back and redo that step.
 2. Agent ids from before the restart are gone, so everything is re-spawned fresh:
    - implementers and fixers get their task file, the worktree and "resume from your
-     checkpoints", plus whatever their stage calls for: the findings for `addressing N`, the
-     push instruction for an approved review;
-   - reviewers and test-runners have no state, so run them again.
+     checkpoints", plus whatever their stage calls for: "address review N findings in <task
+     file>" for `addressing N`, the test-runner report pointer for `fixing`, the push
+     instruction for an approved review;
+   - reviewers and test-runners lost their context, so run fresh ones, unless their section is
+     already in the task file (step 1).
 3. Re-ask the user any pending decision. Briefly tell them what was resumed.
 
 ## 4. Lifecycle of a change
@@ -125,16 +147,42 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
 1. The `implementer` commits on its working branch, runs the targeted local checks, and reports
    **ready for review**. It doesn't push.
 2. Spawn a `reviewer` on the branch's diff (`git -C <worktree> diff origin/<default>...HEAD`),
-   with the brief's goal
-   (`ledger.py set <id> stage="review N" agent="reviewer <agent-id>" commit=<sha>`).
-3. Write the reviewer's findings to the task file, then relay them to the implementer
-   (SendMessage to the same agent, so it keeps its context). It fixes each finding or rebuts it
-   with reasons. Repeat with a fresh reviewer. After three rounds without convergence, take the
-   open disagreement to the user.
+   with the brief's goal, the task file and the round number N. Set the stage first
+   (`ledger.py set <id> stage="review N" commit=<sha>`), and the agent once it exists
+   (`agent="reviewer <agent-id>"`). It writes its findings to the task file under
+   `## Review N (<sha>)` itself.
+3. Relay the findings **by pointer**: tell the implementer "address review N findings in <task
+   file>" (SendMessage to the same agent, so it keeps its context), without pasting them. It
+   fixes each finding or rebuts it with reasons. Then review again. After three rounds without
+   convergence, take the open disagreement to the user.
+
+   **Nit-only rounds:** when every open finding is low or nit and mechanical (wording,
+   headings, obvious small code fixes), spawn a fresh `fixer` (Sonnet) with the task file and
+   the review pointer instead of messaging the implementer, whose long context is expensive.
+   High or medium findings, or anything needing a design call, stay with the implementer. After
+   such a round (stage `fixing`), skip the re-review if the fix is wording or docs only: every
+   file in `git -C <worktree> diff --stat <old-sha> HEAD` is prose and the fixer's report says
+   `wording-only`. Then set the ledger's commit to the new HEAD and continue at step 4. If a fix
+   touched code, or rules that change workflow behaviour, re-review as below (resumed or fresh,
+   per the same rules).
+
+   **Re-reviews:** when the change since the reviewed commit is small and fix-only, resume the
+   previous reviewer with SendMessage ("re-review `git -C <worktree> range-diff origin/<default>
+   <old-sha> HEAD`, findings under `## Review N+1 (<new sha>)`"), so it keeps its context. Small,
+   as a rule of thumb: under ~100 changed lines (insertions + deletions from
+   `git -C <worktree> diff --shortstat <old-sha> HEAD`), the same number of commits
+   (`git -C <worktree> rev-list --count origin/<default>..<sha>` for both), and the
+   implementer's report says it only touched what the findings named. None of these needs the
+   diff itself. If the base moved, the shortstat includes upstream changes, so it says "fresh".
+   Otherwise, or when the previous reviewer isn't alive (a restart), spawn a fresh reviewer on
+   the full diff. Before asking to merge, if every round since round 1 was a resume, run one
+   fresh reviewer on the full diff, so the final verdict comes from someone who didn't anchor on
+   earlier findings.
 4. Once the review is clean, tell the implementer to push the working branch.
 
-   In steps 3–5, if the implementer isn't alive in this session (a restart, or it was stopped),
-   spawn a fresh one with the task file and "resume", plus the findings or the push instruction.
+   In steps 3–6, if the implementer isn't alive in this session (a restart, or it was stopped),
+   spawn a fresh one with the task file and "resume", plus the review pointer or the push
+   instruction.
 5. Record the pushed commit (`git -C <worktree> rev-parse HEAD`, which must equal
    `origin/<branch>`) in the ledger (`ledger.py set <id> stage=ci commit=<sha>`, then
    `ci=<run ids>` once the runs exist).
@@ -143,17 +191,19 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
    It also runs whatever needs real hardware (MoltenVK GPU tests) locally. Until a repo has CI,
    its local stack verification is the check.
 
-   On failure, write the report to the task file, then send it to a `fixer` for mechanical fixes,
-   or back to the implementer for design problems (`fixing`). Fixes are squashed into the commits
-   they belong to, so the re-review (`review N`) gets only the change since the ledger's commit:
+   On failure, the test-runner's report is in the task file: point a `fixer` at it for
+   mechanical fixes, or the implementer for design problems (`fixing`). Fixes are squashed into
+   the commits they belong to, so the re-review (`review N`, resuming the previous reviewer when
+   it's small, as in step 3) gets only the change since the ledger's commit:
    `git -C <worktree> range-diff origin/<default> <old-sha> HEAD`. Once that's clean, push with
    `--force-with-lease` (tell the fixer or implementer to, or do it yourself) and run CI again.
    Any change to the branch means a new commit in the ledger and a new CI run.
-6. When CI is green, write the repo-doc learnings from the task file's reports as a commit on the
-   branch, and send it through review and CI too. Then **ask the user for permission to merge**
-   (`awaiting-merge`): give a short summary and the potentially controversial decisions from the
-   reports. Once they agree (`approved`, then `merging`), merge **on the remote**, never by
-   checking out the user's checkout:
+6. When CI is green and the task file's reports have repo-doc learnings not yet in their "Docs
+   updated" items, tell the implementer to commit them on the branch (it knows the docs; you
+   don't read them), and send that through review and CI too. Then **ask the user for
+   permission to merge** (`awaiting-merge`): give a short summary and the potentially
+   controversial decisions from the reports. Once they agree (`approved`, then `merging`),
+   merge **on the remote**, never by checking out the user's checkout:
    - `git -C <repo> fetch`. If the default branch moved, `git -C <worktree> rebase
      origin/<default>` (a conflict goes to the implementer, at `addressing N`). Then back to
      `review N` with the same range-diff, `git push --force-with-lease` the working branch, and
@@ -174,7 +224,8 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
      restart) and record what a future session needs, following
      `~/.claude/skills/wrap-up/SKILL.md` (it can't be invoked by the model, so read it):
      - repo knowledge already went into the repo's docs in step 6. Prefer that: docs reach every
-       worker, while memory reaches them only through your briefs. Anything learned later goes
+       worker, while memory reaches them only through your briefs. Trust the reports' "Docs
+       updated" items rather than reading docs or diffs to check. Anything learned later goes
        in a follow-up branch;
      - preferences and decisions go in that repo's memory dir (see the `projects` memory).
        Those dirs load only in sessions started inside the repo, so read them yourself when
@@ -190,8 +241,11 @@ and on the remote. Then delete its row and task file.
 
 ## 5. Stay lean
 
-- Take workers' reports, not their logs. When you need more detail, ask the worker a question
-  rather than reading everything yourself.
+- Take workers' handbacks, not their logs; the full reports wait in the task file. When you
+  need more detail, ask the worker a question rather than reading everything yourself.
+- Don't read raw diffs or docs for review or absorb: reviewers read the diff, and reports say
+  what changed and which docs were updated. Pass findings and failures to the next worker by
+  pointer to the task file, not by pasting them.
 - Your own context is the only one that lasts. At a phase boundary (memory and docs current,
   work merged), suggest the user run `/compact`.
 - When a command keeps prompting for permission (in your session or workers'), tell the user the

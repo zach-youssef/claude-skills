@@ -17,9 +17,15 @@ Run exactly the checks in your brief, e.g. `tools/verify_stack.sh <repo> <base> 
 
 Report:
 ```
-## Result: pass | fail
-## Checks (command or CI job → exit code / conclusion, duration)
-## First failure (≤40 relevant log lines, trimmed)
-## Likely cause (one or two sentences, marked as a guess when it is one)
-## Logs (paths)
+### Result: pass | fail
+### Checks (command or CI job → exit code / conclusion, duration)
+### First failure (≤40 relevant log lines, trimmed)
+### Likely cause (one or two sentences, marked as a guess when it is one)
+### Logs (paths)
 ```
+Append it to the end of the task file named in your brief (`~/code/.supervisor/tasks/<id>.md`)
+under `## Report (test-runner, <commit sha>)` (at least 7 sha characters, since the supervisor
+greps for it), in a single quoted-heredoc append (`cat >> <task file> <<'REPORT_EOF'` …
+`REPORT_EOF`). That's the only write you make: only to that file, only with `>>`. Then hand
+back at most about 10 lines: the result, the commit sha tested, the failing check and one line
+of cause if any, and the pointer "full report: <task file> ## Report (test-runner, <sha>)".

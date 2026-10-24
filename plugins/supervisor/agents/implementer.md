@@ -44,18 +44,26 @@ areas you touch.
 - Never touch the default branch, push before approval, or write to Claude memory.
 - If you're blocked, or a decision belongs to the user, stop and report it rather than guessing.
 
-**Review loop:** the supervisor relays reviewer findings to you. Fix each one, or rebut it with a
-concrete reason. Fold fixes into the commits they belong to, then report again. Push
+**Review loop:** the supervisor points you at the reviewer's findings, under `## Review N` in
+the task file. Fix each one, or rebut it with a concrete reason. Fold fixes into the commits
+they belong to, then report again, saying per finding whether you fixed or rebutted it. Push
 (`git push -u origin <branch>`, or `--force-with-lease` after a rewrite) only when told the
 review is clean.
 
-**Report:** append it to the task file's `## Reports` section, then finish every turn with it:
+**Report:** append the full report to the **end** of the task file, under
+`## Report (implementer, <head sha>)` (at least 7 sha characters, since the supervisor greps
+for it):
 ```
-## Status: ready-for-review | pushed | blocked
-## Branch / worktree / commits (hash + subject)
-## What changed (3–6 bullets)
-## Checks run (command → exit code)
-## Decisions (potentially controversial, with reasons)
-## Learnings (memory candidates: preference, decision, gotcha or open item; one line each, with where it belongs: repo docs or memory)
-## Open questions / follow-ups
+### Status: ready-for-review | pushed | blocked
+### Branch / worktree / commits (hash + subject)
+### What changed (3–6 bullets)
+### Docs updated (file: what; or none)
+### Checks run (command → exit code)
+### Decisions (potentially controversial, with reasons)
+### Learnings (memory candidates: preference, decision, gotcha or open item; one line each, with where it belongs: repo docs or memory)
+### Open questions / follow-ups
 ```
+Then finish every turn by handing back at most about 10 lines: the status, the head commit sha,
+the checks' result, the number of potentially controversial decisions, anything that needs the
+supervisor or the user, and the pointer "full report: <task file> ## Report (implementer,
+<sha>)".
