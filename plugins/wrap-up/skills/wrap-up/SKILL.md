@@ -9,6 +9,11 @@ disable-model-invocation: true
 Go back over this whole conversation and save what a future session would need but couldn't
 work out from the code, git history or existing memory. Then report what changed.
 
+The supervisor also runs these steps on a finished worker's report (its Decisions and Learnings
+sections) before cleaning the worker up. In that case the "session" is the report, and the
+memory to update is the memory dir of the repo the worker changed (see the supervisor's
+`projects` memory).
+
 ## 1. Read what's already recorded
 
 - This project's memory: the memory directory named in the system prompt, its `MEMORY.md` index
@@ -56,6 +61,21 @@ project memories, `[[name]]` links between related memories, and a one-line poin
   pushed, a follow-up that's now done) and delete ones that turned out to be wrong.
 - Write absolute dates, never "today" or "yesterday".
 - Keep each `MEMORY.md` line a short hook; the detail goes in the file.
+
+## 4b. Prune
+
+Memory is loaded into every session, so keep it small:
+- **Delete finished items.** A shipped feature, a resolved limitation or a merged branch belongs
+  to git history, not memory. Keep only what is still open.
+- **No status narratives:** no commit hashes, "pushed on" dates or stage-by-stage history. Git
+  records those.
+- **No duplicates:** delete memories that repeat `~/.claude/CLAUDE.md` or the repo's `CLAUDE.md`
+  and docs, and merge memories that overlap.
+- **Repo knowledge belongs in the repo.** Conventions and gotchas that any worker needs should
+  live in the repo's docs, where every session loads them. Propose moving them, since the repo
+  isn't yours to change here, and delete the memory once they've moved.
+- **Keep the index small:** each `MEMORY.md` line under about 15 words, and the whole index
+  under about 2 KB. If it's longer, consolidate.
 
 ## 5. Propose global changes, then apply them on approval
 

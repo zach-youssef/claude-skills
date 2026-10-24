@@ -9,6 +9,11 @@
       "name": "wrap-up",
       "source": "./plugins/wrap-up",
       "description": "End-of-session memory update: records what's worth keeping in project memory and proposes changes to ~/.claude/CLAUDE.md for approval."
+    },
+    {
+      "name": "supervisor",
+      "source": "./plugins/supervisor",
+      "description": "Supervisor/worker workflow: worker agents (planner, implementer, reviewer, test-runner, fixer, helper) and the orchestrate skill for delegating, review, CI and merges."
     }
   ]
 }

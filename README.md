@@ -7,6 +7,7 @@ Skills for [Claude Code](https://claude.com/claude-code), packaged as a plugin m
 ```
 /plugin marketplace add zach-youssef/claude-skills
 /plugin install wrap-up@claude-skills
+/plugin install supervisor@claude-skills
 ```
 
 Run `/plugin marketplace update claude-skills` to pick up changes.
@@ -25,6 +26,37 @@ conversation, then:
 - reports what it created, updated, deleted and deliberately left out.
 
 It only runs when you invoke it, never on its own.
+
+### supervisor
+
+A supervisor/worker workflow. The main session (run from `~/code`, across all repos) plans,
+delegates and owns memory; workers go deep on one task each and are discarded afterwards.
+
+- `orchestrate` skill: when to delegate, task graphs for parallel work, worker briefs, and the
+  change lifecycle (implement on a working branch, adversarial review loop, push, green CI, ask
+  to merge, absorb learnings, clean up).
+- Agents: `planner`, `implementer` and `reviewer` (Opus), `test-runner` and `fixer` (Sonnet),
+  `helper` (Haiku, non-technical tasks). Implementers work in their own worktrees under
+  `~/code/.supervisor/worktrees/<repo>/<branch>`.
+- Resumable: orchestration state (`ledger.md`, per-task files with checkpoints and reports,
+  worktrees) lives in `~/code/.supervisor/`, so a restarted supervisor reconciles it with git and
+  CI and re-spawns workers from their checkpoints.
+
+To have a new `~/code` session print the ledger, add this SessionStart hook to
+`~/.claude/settings.json` (it isn't in a plugin `hooks.json`, since the plugin is symlinked rather
+than installed). It matches the cwd exactly, so sessions in subdirectories stay quiet:
+
+```json
+"hooks": {
+  "SessionStart": [{ "hooks": [{ "type": "command", "timeout": 10, "command":
+    "f=\"$HOME/code/.supervisor/ledger.md\"; [ \"$(jq -r .cwd)\" = \"$HOME/code\" ] && [ -f \"$f\" ] && { echo \"Supervisor ledger ($f). Load the orchestrate skill, reconcile each row with git/gh, then resume:\"; cat \"$f\"; }; exit 0"
+  }] }]
+}
+```
+
+For local development, symlink instead of installing, so edits apply immediately:
+`~/.claude/agents/<name>.md` → `plugins/supervisor/agents/<name>.md` and
+`~/.claude/skills/<name>` → `plugins/*/skills/<name>`.
 
 ## Adding a skill
 
