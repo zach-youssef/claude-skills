@@ -40,7 +40,8 @@ delegates and owns memory; workers go deep on one task each and are discarded af
   `~/code/.supervisor/worktrees/<repo>/<branch>`.
 - Resumable: orchestration state (`ledger.md`, per-task files with checkpoints and reports,
   worktrees) lives in `~/code/.supervisor/`, so a restarted supervisor reconciles it with git and
-  CI and re-spawns workers from their checkpoints.
+  CI and re-spawns workers from their checkpoints. `orchestrate/ledger.py` edits ledger rows by
+  id and fails loudly when the id matches no row or several (tests: `test_ledger.sh`).
 
 To have a new `~/code` session print the ledger, add this SessionStart hook to
 `~/.claude/settings.json` (it isn't in a plugin `hooks.json`, since the plugin is symlinked rather

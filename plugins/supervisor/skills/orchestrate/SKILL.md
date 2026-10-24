@@ -77,6 +77,21 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
   already made this project. **Update it at every transition, before acting on it:** spawning,
   each report, each review round, a push, CI starting or finishing, asking the user, their
   answer. So a stage means "intended, maybe not finished", and every step must be safe to repeat.
+
+  **Edit rows with `ledger.py`**, not sed or Edit. It sits next to this file; call it by its full
+  path, `~/.claude/skills/orchestrate/ledger.py`. It needs no Read first, exits non-zero with a
+  message when the id matches no row or several, refuses `|` and newlines in values, locks
+  (`.ledger.md.lock`, failing after 10 s if the holder hangs) so parallel calls don't lose
+  updates, and replaces the file atomically:
+  ```
+  ledger.py add <id> repo=<repo> branch=<branch> worktree=<path> agent=implementer stage=implementing next-action="…"
+  ledger.py set <id> stage="review 1" agent="reviewer <agent-id>" commit=<sha> next-action="…"
+  ledger.py show <id>
+  ledger.py delete <id>
+  ```
+  Fields are the column names, case-insensitive, with `-` for spaces (`ci`, `next-action`); an
+  empty value stores `—`. `add` creates the ledger if it's missing. Edit the notes below the
+  table as before. Tests: `test_ledger.sh [<copy of a ledger>]`, never on the real file.
 - **`tasks/<id>.md`:** the brief, the worker's `## Checkpoints`, every `## Reports` entry
   (status, decisions, learnings), review findings and CI or test failure reports. Workers append
   their own checkpoints and reports; you write findings, failures and the user's decisions
@@ -110,7 +125,8 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
 1. The `implementer` commits on its working branch, runs the targeted local checks, and reports
    **ready for review**. It doesn't push.
 2. Spawn a `reviewer` on the branch's diff (`git -C <worktree> diff origin/<default>...HEAD`),
-   with the brief's goal.
+   with the brief's goal
+   (`ledger.py set <id> stage="review N" agent="reviewer <agent-id>" commit=<sha>`).
 3. Write the reviewer's findings to the task file, then relay them to the implementer
    (SendMessage to the same agent, so it keeps its context). It fixes each finding or rebuts it
    with reasons. Repeat with a fresh reviewer. After three rounds without convergence, take the
@@ -120,10 +136,12 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
    In steps 3–5, if the implementer isn't alive in this session (a restart, or it was stopped),
    spawn a fresh one with the task file and "resume", plus the findings or the push instruction.
 5. Record the pushed commit (`git -C <worktree> rev-parse HEAD`, which must equal
-   `origin/<branch>`) in the ledger. A `test-runner` watches CI for that exact commit: it polls
-   `gh run list --commit <sha>` until the runs appear, then `gh run watch <id> --exit-status` for
-   **every** run on that commit. It also runs whatever needs real hardware (MoltenVK GPU tests)
-   locally. Until a repo has CI, its local stack verification is the check.
+   `origin/<branch>`) in the ledger (`ledger.py set <id> stage=ci commit=<sha>`, then
+   `ci=<run ids>` once the runs exist).
+   A `test-runner` watches CI for that exact commit: it polls `gh run list --commit <sha>` until
+   the runs appear, then `gh run watch <id> --exit-status` for **every** run on that commit.
+   It also runs whatever needs real hardware (MoltenVK GPU tests) locally. Until a repo has CI,
+   its local stack verification is the check.
 
    On failure, write the report to the task file, then send it to a `fixer` for mechanical fixes,
    or back to the implementer for design problems (`fixing`). Fixes are squashed into the commits
@@ -163,7 +181,8 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
        planning work there and copy what matters into briefs;
      - cross-project items go in the supervisor's memory.
    - Stop the worker if it's still running. Only now, with the row at `merged` and the learnings
-     absorbed, delete its ledger row and task file, and the ledger itself once it's empty.
+     absorbed, delete its ledger row (`ledger.py delete <id>`) and task file, and the ledger
+     itself and its `.ledger.md.lock` once it's empty (the script says when no rows are left).
 
 **Abandoning a task** (the user cancels it, or drops a `blocked` one): set it to `abandoned`,
 absorb its learnings, and with the user's OK remove the worktree and delete the branch locally
