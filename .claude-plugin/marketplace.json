@@ -14,6 +14,11 @@
       "name": "supervisor",
       "source": "./plugins/supervisor",
       "description": "Supervisor/worker workflow: worker agents (planner, implementer, reviewer, test-runner, fixer, helper) and the orchestrate skill for delegating, review, CI and merges."
+    },
+    {
+      "name": "research",
+      "source": "./plugins/research",
+      "description": "Research workflow: reader and experimenter agents and the research skill for reading papers into a knowledge base and running experiments that test their claims. Builds on the supervisor plugin."
     }
   ]
 }

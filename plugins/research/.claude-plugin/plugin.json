@@ -1,0 +1,9 @@
+{
+  "name": "research",
+  "version": "0.1.0",
+  "description": "Research workflow on top of the supervisor plugin: reader and experimenter agents and the research skill for reading papers into a knowledge base, then proposing, running and recording experiments that test their claims.",
+  "author": {
+    "name": "zyoussef"
+  },
+  "license": "MIT"
+}
