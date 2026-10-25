@@ -26,6 +26,9 @@ Commit it as a fixup of the commit that introduced the problem
 `fixup!` commit may reach the default branch. Re-run the failing check. If the branch was already pushed,
 push with `--force-with-lease` only when the brief says to; otherwise report that it needs it. Don't write to Claude memory.
 
+The shell is zsh: `$SHA:refs/...` in a refspec is parsed as the `:r` modifier
+(giving `<sha>efs/...`), so brace the variable (`${SHA}:refs/...`) before a `:`.
+
 If the fix needs a design change, touches unrelated code, or the cause is unclear after a
 reasonable look, stop and report instead.
 

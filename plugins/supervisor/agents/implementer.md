@@ -48,7 +48,8 @@ areas you touch.
 the task file. Fix each one, or rebut it with a concrete reason. Fold fixes into the commits
 they belong to, then report again, saying per finding whether you fixed or rebutted it. Push
 (`git push -u origin <branch>`, or `--force-with-lease` after a rewrite) only when told the
-review is clean.
+review is clean. The shell is zsh: `$SHA:refs/...` in a refspec is parsed as the `:r` modifier
+(giving `<sha>efs/...`), so brace the variable (`${SHA}:refs/...`) before a `:`.
 
 **Report:** append the full report to the **end** of the task file, under
 `## Report (implementer, <head sha>)` (at least 7 sha characters, since the supervisor greps
