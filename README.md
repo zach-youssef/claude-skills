@@ -8,6 +8,7 @@ Skills for [Claude Code](https://claude.com/claude-code), packaged as a plugin m
 /plugin marketplace add zach-youssef/claude-skills
 /plugin install wrap-up@claude-skills
 /plugin install supervisor@claude-skills
+/plugin install research@claude-skills
 ```
 
 Run `/plugin marketplace update claude-skills` to pick up changes.
@@ -59,8 +60,27 @@ than installed). It matches the cwd exactly, so sessions in subdirectories stay 
 ```
 
 For local development, symlink instead of installing, so edits apply immediately:
-`~/.claude/agents/<name>.md` → `plugins/supervisor/agents/<name>.md` and
-`~/.claude/skills/<name>` → `plugins/*/skills/<name>`.
+`~/.claude/agents/<name>.md` → `plugins/*/agents/<name>.md` and
+`~/.claude/skills/<name>` → `plugins/*/skills/<name>`. The links are per file, so a new agent or
+skill needs its own link.
+
+### research
+
+Research workflow on top of `supervisor` (install both): agents read papers into a knowledge
+base, then design and run experiments that test the papers' claims and record the results back
+into it. The knowledge base and experiments live in a separate repo (`~/code/research`), whose
+docs define the formats.
+
+- `research` skill: the stages (intake, read, note review, propose, the user's approval, run,
+  reproduction by a test-runner, experiment review, absorb) on the `orchestrate` lifecycle,
+  brief templates, reviewer checklists for notes (every claim checked against its cited page)
+  and experiments (criterion fixed in advance, reproducible, numbers match the logs), budgets
+  (stop at 2×, ask before downloads past 1 GB), the GPU slot, and searching the knowledge base
+  without loading it whole.
+- Agents (Opus): `reader` writes one note per paper with every claim referenced, and lists
+  papers worth reading next without fetching them; `experimenter` proposes a `plan.md` and stops
+  for approval, then runs it within the budget and writes `results.json` and `results.md`.
+- The user approves which papers are read, each experiment plan, any budget change, and merges.
 
 ## Adding a skill
 

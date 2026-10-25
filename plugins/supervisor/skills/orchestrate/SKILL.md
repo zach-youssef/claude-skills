@@ -20,6 +20,9 @@ or is a question for the user.
 - independent of other tasks, so they can run in parallel;
 - non-technical (prose, summaries, lists, lookups): use `helper`.
 
+Research work (reading papers into the knowledge base, experiments in `~/code/research`): load
+the `research` skill too, which adds the `reader` and `experimenter` agents and their stages.
+
 A worker starts cold, so a brief that takes longer to write than the task takes to do means the
 task stays inline.
 
@@ -78,7 +81,9 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
   - agent: the type, plus its id *for this session only* (ids don't survive a restart);
   - stage: `planned` | `implementing` | `review N` (reviewer running) | `addressing N`
     (implementer on findings) | `fixing` | `pushed` | `ci` | `awaiting-merge` | `approved` |
-    `merging` | `merged` (absorb pending) | `blocked` | `abandoned`;
+    `merging` | `merged` (absorb pending) | `blocked` | `abandoned`, plus `awaiting-approval`
+    (a plan waiting for the user) and `reproducing` (a rerun before review) for research
+    experiments, as the `research` skill describes;
   - commit: the exact sha under review or CI, which is what may be merged (this is orchestration
     state, not memory, so a hash is fine here);
   - CI run ids;
