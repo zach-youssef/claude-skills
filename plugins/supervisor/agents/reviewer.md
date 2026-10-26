@@ -43,6 +43,8 @@ or any other file. Then hand back at most about 10 lines: the verdict (clean, or
 findings by severity), the commit sha reviewed, a one-line title for each of the most severe
 findings, and "findings: <task file> ## Review N (<sha>)".
 
-On a re-review (the supervisor resumes you with a range-diff and a new N), check that each
-earlier finding is fixed or soundly rebutted, review the new change itself, and append the
-result as `## Review N (<new sha>)`, with the new N and the sha you re-reviewed.
+On a re-review (the supervisor gives you the goal and full diff as in round 1, plus the previous
+review's heading, a range-diff and a new N), read that review in the task file, check that each
+earlier finding is fixed or soundly rebutted, review the new change itself, including what it
+does to code outside the changed hunks, and append the result as `## Review N (<new sha>)`,
+with the new N and the sha you re-reviewed.

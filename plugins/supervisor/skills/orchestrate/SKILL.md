@@ -168,21 +168,18 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
    such a round (stage `fixing`), skip the re-review if the fix is wording or docs only: every
    file in `git -C <worktree> diff --stat <old-sha> HEAD` is prose and the fixer's report says
    `wording-only`. Then set the ledger's commit to the new HEAD and continue at step 4. If a fix
-   touched code, or rules that change workflow behaviour, re-review as below (resumed or fresh,
-   per the same rules).
+   touched code, or rules that change workflow behaviour, re-review with a fresh reviewer, as
+   below.
 
-   **Re-reviews:** when the change since the reviewed commit is small and fix-only, resume the
-   previous reviewer with SendMessage ("re-review `git -C <worktree> range-diff origin/<default>
-   <old-sha> HEAD`, findings under `## Review N+1 (<new sha>)`"), so it keeps its context. Small,
-   as a rule of thumb: under ~100 changed lines (insertions + deletions from
-   `git -C <worktree> diff --shortstat <old-sha> HEAD`), the same number of commits
-   (`git -C <worktree> rev-list --count origin/<default>..<sha>` for both), and the
-   implementer's report says it only touched what the findings named. None of these needs the
-   diff itself. If the base moved, the shortstat includes upstream changes, so it says "fresh".
-   Otherwise, or when the previous reviewer isn't alive (a restart), spawn a fresh reviewer on
-   the full diff. Before asking to merge, if every round since round 1 was a resume, run one
-   fresh reviewer on the full diff, so the final verdict comes from someone who didn't anchor on
-   earlier findings.
+   **Re-reviews:** every round gets a fresh reviewer, so each context is discarded after one
+   round and no verdict anchors on that reviewer's earlier findings. It gets what round 1 got
+   in step 2 (the brief's goal and the full diff, for context) plus the previous review
+   (`## Review N (<old sha>)` in the task file; after a restart that heading is where the old
+   sha is) and the change since then, `git -C <worktree> range-diff origin/<default> <old-sha>
+   HEAD`, with findings under `## Review N+1 (<new sha>)`. It checks that each earlier finding
+   is fixed or soundly rebutted, and reviews the change itself, including its effect on code
+   outside the changed hunks. When the range-diff is mostly new work rather than fixes, it
+   reviews the full diff as in round 1, still checking the previous review's findings.
 4. Once the review is clean, tell the implementer to push the working branch.
 
    In steps 3–6, if the implementer isn't alive in this session (a restart, or it was stopped),
@@ -198,8 +195,8 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
 
    On failure, the test-runner's report is in the task file: point a `fixer` at it for
    mechanical fixes, or the implementer for design problems (`fixing`). Fixes are squashed into
-   the commits they belong to, so the re-review (`review N`, resuming the previous reviewer when
-   it's small, as in step 3) gets only the change since the ledger's commit:
+   the commits they belong to, so the re-review (`review N`, a fresh reviewer as in step 3)
+   gets only the change since the ledger's commit:
    `git -C <worktree> range-diff origin/<default> <old-sha> HEAD`. Once that's clean, push with
    `--force-with-lease` (tell the fixer or implementer to, or do it yourself) and run CI again.
    Any change to the branch means a new commit in the ledger and a new CI run.
