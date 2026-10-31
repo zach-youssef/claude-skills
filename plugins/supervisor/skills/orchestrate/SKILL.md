@@ -164,8 +164,9 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
    sides' reasons, in the merge ask, so the user decides.
 
    **Supervisor orchestration changes** (the ledger, task files, memory, and this plugin's
-   skills and agents) that the supervisor makes on the user's explicit instructions skip review:
-   commit on a working branch, push, then ask to merge as usual.
+   skills and agents) that the supervisor makes on the user's explicit instructions skip review
+   and the working branch: commit them directly to `main` and push (the user's standing
+   permission, 2026-10-31). This doesn't cover other repos, or changes nobody asked for.
 
    **Nit-only rounds:** when every open finding is low or nit and mechanical (wording,
    headings, obvious small code fixes), spawn a fresh `fixer` (Sonnet) with the task file and
