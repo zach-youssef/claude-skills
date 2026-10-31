@@ -158,8 +158,14 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
    `## Review N (<sha>)` itself.
 3. Relay the findings **by pointer**: tell the implementer "address review N findings in <task
    file>" (SendMessage to the same agent, so it keeps its context), without pasting them. It
-   fixes each finding or rebuts it with reasons. Then review again. After three rounds without
-   convergence, take the open disagreement to the user.
+   fixes each finding or rebuts it with reasons. Then review again, for **at most two rounds**
+   per change. After round 2, the implementer (or a fixer, for nits) addresses the remaining
+   findings without a third review; list every finding it rebuts or leaves open, with both
+   sides' reasons, in the merge ask, so the user decides.
+
+   **Supervisor orchestration changes** (the ledger, task files, memory, and this plugin's
+   skills and agents) that the supervisor makes on the user's explicit instructions skip review:
+   commit on a working branch, push, then ask to merge as usual.
 
    **Nit-only rounds:** when every open finding is low or nit and mechanical (wording,
    headings, obvious small code fixes), spawn a fresh `fixer` (Sonnet) with the task file and
