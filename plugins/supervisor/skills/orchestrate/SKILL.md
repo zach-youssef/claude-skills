@@ -38,6 +38,8 @@ code reading. A task graph lists:
 - the decisions the user must make, each with options and a recommendation, asked together up
   front.
 
+The plan goes in `~/code/.supervisor/plans/` (section 3b), split by task once it's long.
+
 Some things limit parallelism on this machine:
 - GPU tests share the device, so run them one at a time per machine;
 - memory-heavy builds (personal-site's Gradle and e2e) need care;
@@ -89,8 +91,12 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
   - CI run ids;
   - next action.
 
-  Below the table: the task graph's batches, the user's pending decisions, and the decisions
-  already made this project. **Update it at every transition, before acting on it:** spawning,
+  Below the table: the GPU slot, the task graph's batches, the user's pending decisions, and
+  open follow-ups. The SessionStart hook loads the whole ledger every session, so it holds only
+  live state. Decisions go in `decisions/<project>.md`, one line each, with the date, and the
+  ledger keeps a one-line pointer per project. When a section below the table passes about 30
+  lines, move what's settled into that project's file. Drop a follow-up once it's queued as a
+  task or done. **Update it at every transition, before acting on it:** spawning,
   each report, each review round, a push, CI starting or finishing, asking the user, their
   answer. So a stage means "intended, maybe not finished", and every step must be safe to repeat.
 
@@ -113,6 +119,13 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
   reports. Workers append their own checkpoints, reports and findings; you write planner
   reports and the user's decisions there **before** acting on them or spawning the next worker.
   Nothing a later step needs may live only in your context.
+- **`plans/<project>/`:** a task graph past about 200 lines is split into `overview.md`
+  (goal, findings, architecture, batches, decisions, risks: what every task shares) and one
+  `<task id>.md` per task or milestone. A brief points at the overview plus its own task's
+  file, never "read the whole plan". Smaller plans stay one file, `plans/<project>.md`. Keep
+  to two levels: each level is a lookup that relies on a one-line description.
+- **`decisions/<project>.md`:** the user's decisions and supervisor calls, settled, newest
+  first. Read the project's file when planning or briefing there.
 - **Worktrees** (`worktrees/<repo>/<branch>`) keep the code, committed or not.
 
 **Resuming** (a SessionStart hook prints the ledger in `~/code`; otherwise read it first):
@@ -255,6 +268,8 @@ and on the remote. Then delete its row and task file.
 - Don't read raw diffs or docs for review or absorb: reviewers read the diff, and reports say
   what changed and which docs were updated. Pass findings and failures to the next worker by
   pointer to the task file, not by pasting them.
+- Memory's `MEMORY.md` index loads every session. Past about 40 lines, group it into topic
+  sub-indexes (`<topic>/MEMORY.md`, one line each in the top index), at most two levels deep.
 - Your own context is the only one that lasts. At a phase boundary (memory and docs current,
   work merged), suggest the user run `/compact`.
 - When a command keeps prompting for permission (in your session or workers'), tell the user the
