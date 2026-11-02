@@ -41,7 +41,9 @@ code reading. A task graph lists:
 The plan goes in `~/code/.supervisor/plans/` (section 3b), split by task once it's long.
 
 Some things limit parallelism on this machine:
-- GPU tests share the device, so run them one at a time per machine;
+- GPU tests share the device, so run them one at a time per machine; the Windows PC (NVIDIA) is a
+  second machine, used only through `~/.claude/skills/orchestrate/winpc` (usage: `winpc --help`),
+  which grants runs only while the user isn't gaming and has its own GPU lock;
 - memory-heavy builds (personal-site's Gradle and e2e) need care;
 - tasks editing the same files go in sequence.
 
