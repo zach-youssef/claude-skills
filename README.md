@@ -46,7 +46,9 @@ delegates and owns memory; workers go deep on one task each and are discarded af
 - Windows GPU PC: `orchestrate/winpc` is the only way agents use the PC (status, availability
   flag, sync of an exact commit, runs that print only summary lines and copy logs back, detached
   runs, data copies), over SSH on the LAN; usage and config are in its header (`winpc --help`;
-  tests against a stub host: `test_winpc.sh`).
+  tests against a stub host: `test_winpc.sh`). `winpc-watcher.ps1` reports on the PC whether the
+  user is gaming (Steam, Epic, GOG, fullscreen, GPU use) and `install-winpc-watcher.ps1` sets it
+  up as a logon task; winpc grants runs only while it reports idle.
 - Lean supervisor context: workers append their full reports (reviewers their findings) to the
   task file and hand back about 10 lines; findings reach the implementer by pointer, and each
   review round gets a fresh reviewer on the range-diff.
