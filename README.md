@@ -43,6 +43,10 @@ delegates and owns memory; workers go deep on one task each and are discarded af
   worktrees) lives in `~/code/.supervisor/`, so a restarted supervisor reconciles it with git and
   CI and re-spawns workers from their checkpoints. `orchestrate/ledger.py` edits ledger rows by
   id and fails loudly when the id matches no row or several (tests: `test_ledger.sh`).
+- Windows GPU PC: `orchestrate/winpc` is the only way agents use the PC (status, availability
+  flag, sync of an exact commit, runs that print only summary lines and copy logs back, detached
+  runs, data copies), over SSH on the LAN; usage and config are in its header (`winpc --help`;
+  tests against a stub host: `test_winpc.sh`).
 - Lean supervisor context: workers append their full reports (reviewers their findings) to the
   task file and hand back about 10 lines; findings reach the implementer by pointer, and each
   review round gets a fresh reviewer on the range-diff.

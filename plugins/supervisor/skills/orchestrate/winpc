@@ -1,0 +1,577 @@
+#!/usr/bin/env bash
+# winpc: the only way agents use the Windows GPU PC (RTX 3080) from the Mac.
+#
+# Usage:
+#   winpc status                  reachability, the watcher's busy/idle report, the avail flag,
+#                                 nvidia-smi, the PC GPU lock's holder, and a verdict
+#   winpc avail [on|off]          shows or sets the manual availability flag (kept on the Mac;
+#                                 on until set off)
+#   winpc sync <env> <repo dir> <sha>
+#                                 pushes the commit and its submodules' commits (--no-verify) to
+#                                 the env's persistent clone and checks them out, detached
+#   winpc run <env> <repo> <sha> --task <id> -- <command...>
+#                                 runs the command in the synced clone, holding the PC GPU lock;
+#                                 prints only summary lines, copies logs back, exits with the
+#                                 command's status
+#   winpc start <env> <repo> <sha> --task <id> -- <command...>
+#                                 the same, detached (outlives SSH); prints the run id
+#   winpc poll <env> <run id>     the run's state and summary so far
+#   winpc fetch <env> <run id>    copies its output and logs back, prints its summary
+#   winpc stop <env> <run id>     kills a detached run's process tree (or cancels it before it
+#                                 starts; refuses a foreground run, 64); exits 75 if its processes outlive the stop
+#   winpc put <env> <local path> <remote dir>
+#   winpc get <env> <remote path> <local dir>
+#                                 copies a file or directory (tar over SSH, checked by SHA-256)
+#
+# <env> is `native` (MSYS2 CLANG64 bash: native NVIDIA Vulkan) or `wsl` (WSL Ubuntu: CUDA,
+# Linux builds). <repo> is a local repo dir (any worktree; the clone is named after the main
+# checkout) or a repo name with a full 40-hex sha. Remote paths are absolute in the env, or
+# relative to its clone root.
+#
+# Config: ~/.config/winpc.conf (WINPC_CONF overrides), `key = value` lines, all required:
+#   host        = winpc                          # ssh alias (~/.ssh/config: HostName, User claude, key)
+#   native_root = /c/Users/claude/winpc          # MSYS2 path of native clones and runs
+#   wsl_root    = /home/claude/winpc             # WSL path of WSL clones and runs
+#   msys2       = C:\msys64                      # MSYS2 install
+#   wsl_distro  = Ubuntu-24.04
+#   status_file = C:\ProgramData\winpc\status.txt  # written by winpc-watcher.ps1
+#   lock_dir    = C:\Users\claude\.winpc\lock    # PC GPU lock, shared by both envs
+#   logs_root   = ~/code/.supervisor/remote      # logs land in <logs_root>/<task>/<sha>/
+#
+# Grants: run and start refuse (exit 69) unless the avail flag is on and the watcher's status
+# file says idle and is fresh (updated within 3 intervals + 30 s; a stale or missing file counts
+# as unknown, not idle, and so does state=unknown, which the watcher writes when one of its
+# checks fails). While a command runs, the PC side kills it when the watcher reports busy (a
+# game started) and run exits 69 ("preempted"): requeue it.
+#
+# Known limitations:
+#   - `winpc avail off` only stops new grants: runs already going (detached ones too) finish,
+#     and only the watcher preempts them. Use `winpc stop` for a detached run.
+#   - The flag lives on the Mac, so the user at the PC can't flip it; the watcher covers them.
+#   - A watcher that reports unknown, or goes stale, mid-run doesn't preempt; only busy does.
+#   - What the watcher can't detect is listed in winpc-watcher.ps1's header.
+#
+# Output of run: the command's PASS/FAIL lines, "  failed: ", "note: " and "  note: " lines,
+# then "winpc: " lines (where the logs are, how the command ended). The full output is in
+# <logs_root>/<task>/<sha>/winpc-<run id>.log, beside the clone's build/logs files and failed
+# screenshots (*.received.png, *.flip.png) newer than the run, under their repo paths.
+#
+# Exit codes: run and fetch exit with the command's status; otherwise 0 is success. winpc's own:
+#   64 usage, 65 bad input or state (not synced, unknown run, missing commit),
+#   68 PC unreachable or connection lost, 69 unavailable (flag off, watcher busy/stale/unknown,
+#   run preempted or stopped), 70 PC-side failure, 75 PC GPU lock held or run still going,
+#   78 config error. A command that itself exits with one of these is told apart by the
+#   "winpc: command exited <n>" line.
+#
+# How it reaches the PC: sshd's shell there is cmd.exe, so each SSH command is a fixed launcher
+# (`<msys2>\usr\bin\bash.exe -s` or `wsl.exe -d <distro> -e bash -s`) and the work is
+# winpc-remote.sh (beside this file) piped to it, arguments quoted for bash. Pushes go through
+# `winpc __git-ssh <env>` as git's ssh command, which runs git receive-pack in the env. Status
+# reads use cmd.exe's `type` and nvidia-smi, so they work before either env is installed.
+#
+# WINPC_SSH replaces the ssh command (tests use a stub host). Written for macOS's bash 3.2.
+set -u
+
+here=$(cd "$(dirname "$0")" && pwd)
+self="$here/$(basename "$0")"
+remote_lib="$here/winpc-remote.sh"
+# shellcheck disable=SC2206 # WINPC_SSH is a command line, split into words on purpose
+ssh_cmd=(${WINPC_SSH:-ssh -o BatchMode=yes -o ConnectTimeout=5 -o ServerAliveInterval=30 -o ServerAliveCountMax=4})
+summary_re='^(PASS|FAIL|note: |  failed: |  note: )' # keep in sync with summary() in winpc-remote.sh
+
+die() { local code=$1; shift; echo "winpc: $*" >&2; exit "$code"; }
+usage() { sed -n '2,/^set -u/s/^# \{0,1\}//p' "$self"; }
+say() { echo "winpc: $*"; }
+
+# --- config ---
+
+conf_keys="host native_root wsl_root msys2 wsl_distro status_file lock_dir logs_root"
+
+load_config() {
+    local conf=${WINPC_CONF:-$HOME/.config/winpc.conf} line key val missing='' k v re
+    [ -r "$conf" ] || die 78 "no config at $conf (see winpc --help)"
+    cfg_host='' cfg_native_root='' cfg_wsl_root='' cfg_msys2='' cfg_wsl_distro=''
+    cfg_status_file='' cfg_lock_dir='' cfg_logs_root=''
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=${line%%#*}
+        case $line in *=*) ;; *[![:space:]]*) die 78 "$conf: not key = value: $line" ;; *) continue ;; esac
+        key=$(printf '%s' "${line%%=*}" | tr -d '[:space:]')
+        val=$(printf '%s' "${line#*=}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+        case " $conf_keys " in *" $key "*) ;; *) die 78 "$conf: unknown key $key" ;; esac
+        printf -v "cfg_$key" '%s' "$val"
+    done < "$conf"
+    for k in $conf_keys; do
+        eval "v=\$cfg_$k"
+        [ -n "$v" ] || missing="$missing $k"
+    done
+    [ -z "$missing" ] || die 78 "$conf: missing$missing"
+    case $cfg_logs_root in \~/*) cfg_logs_root="$HOME/${cfg_logs_root#\~/}" ;; esac
+    # Values reach cmd.exe unquoted or in double quotes: no spaces or shell metacharacters
+    re='^[A-Za-z0-9_.@-]+$'
+    [[ $cfg_host =~ $re ]] || die 78 "host: bad value $cfg_host"
+    [[ $cfg_wsl_distro =~ $re ]] || die 78 "wsl_distro: bad value $cfg_wsl_distro"
+    re='^/[A-Za-z0-9_./-]*$'
+    [[ $cfg_native_root =~ $re ]] || die 78 "native_root: needs an absolute MSYS2 path without spaces"
+    [[ $cfg_wsl_root =~ $re ]] || die 78 "wsl_root: needs an absolute path without spaces"
+    re='^[A-Za-z0-9_.:/\\-]+$'
+    for k in msys2 status_file lock_dir; do
+        eval "v=\$cfg_$k"
+        [[ $v =~ $re ]] || die 78 "$k: bad value $v (no spaces or shell metacharacters)"
+    done
+}
+
+# --- transport ---
+
+env_root() { if [ "$1" = native ]; then echo "$cfg_native_root"; else echo "$cfg_wsl_root"; fi; }
+
+launcher() { # <env> <bash|receive-pack>
+    case $1/$2 in
+        native/bash) printf '%s\\usr\\bin\\bash.exe -s\n' "$cfg_msys2" ;;
+        native/receive-pack) printf '%s\\usr\\bin\\git.exe receive-pack\n' "$cfg_msys2" ;;
+        wsl/bash) echo "wsl.exe -d $cfg_wsl_distro -e bash -s" ;;
+        wsl/receive-pack) echo "wsl.exe -d $cfg_wsl_distro -e git receive-pack" ;;
+    esac
+}
+
+check_env() { case $1 in native | wsl) ;; *) die 64 "env must be native or wsl, not '$1'" ;; esac; }
+
+# remote_script <env> <op> <args...>: the script for one op, for `remote` to send
+remote_script() {
+    local env=$1
+    shift
+    printf 'WINPC_ENV=%q ROOT=%q LOCK_DIR=%q STATUS_FILE=%q\n' "$env" "$(env_root "$env")" \
+        "$cfg_lock_dir" "$cfg_status_file"
+    cat "$remote_lib"
+    printf '%q ' "$@"
+    echo
+}
+
+# remote <env> <op> <args...>: runs one op in the env; its stdout and stderr pass through.
+# Exit 255 (ssh's own failure) becomes 68.
+remote() {
+    local env=$1 rc
+    shift
+    remote_script "$env" "$@" | "${ssh_cmd[@]}" "$cfg_host" "$(launcher "$env" bash)"
+    rc=${PIPESTATUS[1]}
+    [ "$rc" -eq 255 ] && { echo "winpc: $cfg_host unreachable or connection lost" >&2; return 68; }
+    return "$rc"
+}
+
+# git's ssh command for pushes: `winpc __git-ssh <env> <host> "git-receive-pack '<path>'"`.
+# When ssh itself fails (255), it creates $WINPC_SSH_FAILED so push_one can tell an unreachable
+# PC from a refused push (git exits 128 either way).
+git_ssh() {
+    local env=$1 host=$2 cmd=$3 re="^git-receive-pack '(/[A-Za-z0-9_./-]+)'\$" rc
+    load_config
+    check_env "$env"
+    [[ $cmd =~ $re ]] || die 64 "__git-ssh: unexpected command: $cmd"
+    "${ssh_cmd[@]}" "$host" "$(launcher "$env" receive-pack) ${BASH_REMATCH[1]}"
+    rc=$?
+    [ $rc -eq 255 ] && [ -n "${WINPC_SSH_FAILED:-}" ] && : > "$WINPC_SSH_FAILED"
+    exit $rc
+}
+
+# --- availability ---
+
+avail_file() { echo "${XDG_STATE_HOME:-$HOME/.local/state}/winpc/avail"; }
+
+flag_state() { # on unless `winpc avail off`
+    local f
+    f=$(avail_file)
+    if [ -f "$f" ] && [ "$(cut -d' ' -f1 "$f")" = off ]; then echo off; else echo on; fi
+}
+
+# gather: one cmd.exe call for the watcher's file, nvidia-smi and the lock holder. Sets
+# reachable, w_* (raw file fields), gpu_info, gpu_apps, holder.
+gather() {
+    local out line section=0 k v cmd
+    cmd="type \"$cfg_status_file\" 2>nul & echo @@winpc1 & nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total --format=csv,noheader 2>nul & echo @@winpc2 & nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader 2>nul & echo @@winpc3 & type \"$cfg_lock_dir\\held\\holder\" 2>nul"
+    w_state='' w_reason='' w_epoch='' w_interval='' gpu_info='' gpu_apps='' holder=''
+    out=$("${ssh_cmd[@]}" "$cfg_host" "$cmd" < /dev/null 2> /dev/null)
+    if [ $? -eq 255 ]; then reachable=no; return 1; fi
+    reachable=yes
+    while IFS= read -r line; do
+        line=${line%$'\r'}
+        case $line in
+            @@winpc[123]*) section=${line:7:1}; continue ;;
+        esac
+        case $section in
+            0)
+                k=${line%%=*} v=${line#*=}
+                case $k in state) w_state=$v ;; reason) w_reason=$v ;; epoch) w_epoch=$v ;; interval) w_interval=$v ;; esac
+                ;;
+            1) [ -n "$line" ] && gpu_info="${gpu_info:+$gpu_info; }$line" ;;
+            2) [ -n "$line" ] && gpu_apps="${gpu_apps:+$gpu_apps; }$line" ;;
+            3) [ -n "$line" ] && holder=$line ;;
+        esac
+    done <<< "$out"
+    return 0
+}
+
+# watcher_verdict: sets watcher (idle, busy, stale or unknown) and watcher_note from w_*
+watcher_verdict() {
+    local now age limit
+    now=$(date +%s)
+    case "$w_epoch$w_interval" in '' | *[!0-9]*)
+        watcher=unknown watcher_note="no valid status file at $cfg_status_file (watcher not installed or not running?)"
+        return ;;
+    esac
+    age=$((now - w_epoch)) limit=$((3 * w_interval + 30))
+    if [ "$age" -lt -120 ]; then
+        watcher=unknown watcher_note="status file is ${age#-}s in the future (clock skew?)"
+    elif [ "$age" -gt "$limit" ]; then
+        watcher=stale watcher_note="last update ${age}s ago (limit ${limit}s): is the user logged in?"
+    else
+        case $w_state in
+            idle | busy) watcher=$w_state ;;
+            *) watcher=unknown ;;
+        esac
+        watcher_note="${w_reason:-no reason given}, ${age}s ago"
+    fi
+}
+
+# grant: exits 68/69 unless the PC may take GPU work now
+grant() {
+    [ "$(flag_state)" = on ] || die 69 "unavailable: the avail flag is off (winpc avail on)"
+    gather || die 68 "unavailable: $cfg_host unreachable"
+    watcher_verdict
+    [ "$watcher" = idle ] || die 69 "unavailable: watcher $watcher ($watcher_note)"
+}
+
+cmd_status() {
+    local code=0 verdict=available
+    gather
+    if [ "$reachable" = no ]; then
+        echo "host: $cfg_host unreachable"
+        echo "flag: $(flag_state)"
+        echo "verdict: unreachable"
+        return 68
+    fi
+    watcher_verdict
+    echo "host: $cfg_host reachable"
+    echo "flag: $(flag_state)"
+    echo "watcher: $watcher ($watcher_note)"
+    echo "gpu: ${gpu_info:-unknown (nvidia-smi gave nothing)}"
+    echo "gpu apps: ${gpu_apps:-none}"
+    echo "lock: ${holder:-free}"
+    if [ "$(flag_state)" != on ]; then
+        verdict="unavailable: avail flag off" code=69
+    elif [ "$watcher" != idle ]; then
+        verdict="unavailable: watcher $watcher" code=69
+    elif [ -n "$holder" ]; then
+        verdict="busy: PC GPU lock held" code=75
+    fi
+    echo "verdict: $verdict"
+    return $code
+}
+
+cmd_avail() {
+    local f
+    f=$(avail_file)
+    case ${1:-} in
+        '') echo "flag: $(flag_state)" ;;
+        on | off)
+            mkdir -p "$(dirname "$f")" || die 70 "can't write $f"
+            echo "$1 $(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$f" || die 70 "can't write $f"
+            echo "flag: $1"
+            ;;
+        *) die 64 "usage: winpc avail [on|off]" ;;
+    esac
+}
+
+# --- repos ---
+
+# repo_name <dir>: the main checkout's directory name, also from a worktree
+repo_name() {
+    local common
+    common=$(cd "$1" && git rev-parse --path-format=absolute --git-common-dir 2> /dev/null) \
+        || die 65 "$1 is not a git repository"
+    case $common in */.git) basename "$(dirname "$common")" ;; *) basename "${common%.git}" ;; esac
+}
+
+check_name() { [[ $1 =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]*$ ]] || die 64 "bad $2: '$1'"; }
+
+# resolve <repo> <sha>: sets name and full (the full sha)
+resolve() {
+    if [ -d "$1" ]; then
+        name=$(repo_name "$1") || exit
+        full=$(git -C "$1" rev-parse --verify --quiet "$2^{commit}") || die 65 "no commit $2 in $1"
+    else
+        name=$1
+        [[ $2 =~ ^[0-9a-f]{40}$ ]] || die 64 "with a repo name, give the full 40-hex sha (or pass the repo dir)"
+        full=$2
+    fi
+    check_name "$name" "repo name"
+}
+
+# gitlinks <dir> <commit> <prefix>: "<path> <sha>" for each submodule, recursively, parents first
+gitlinks() {
+    local dir=$1 commit=$2 prefix=$3 mode _type sha path
+    git -C "$dir" ls-tree -r "$commit" | while read -r mode _type sha path; do
+        [ "$mode" = 160000 ] || continue
+        echo "$prefix$path $sha"
+        [ -e "$dir/$path/.git" ] || continue
+        git -C "$dir/$path" cat-file -e "$sha^{commit}" 2> /dev/null || continue
+        gitlinks "$dir/$path" "$sha" "$prefix$path/"
+    done
+}
+
+push_one() { # <env> <local dir> <remote dir> <sha>: 0, 68 (unreachable) or 70
+    local tmp rc
+    tmp=$(mktemp -d "${TMPDIR:-/tmp}/winpc-push.XXXXXX") || return 70
+    WINPC_SSH_FAILED="$tmp/ssh-failed" GIT_SSH_COMMAND="$(printf '%q ' "$self" __git-ssh "$1")" \
+        GIT_SSH_VARIANT=simple git -C "$2" push --quiet --no-verify --recurse-submodules=no \
+        "ssh://$cfg_host$3" "+$4:refs/remote-run/$4"
+    rc=$?
+    if [ $rc -ne 0 ] && [ -e "$tmp/ssh-failed" ]; then rc=68; elif [ $rc -ne 0 ]; then rc=70; fi
+    rm -rf "$tmp"
+    [ $rc -eq 68 ] && echo "winpc: $cfg_host unreachable or connection lost" >&2
+    return $rc
+}
+
+cmd_sync() {
+    [ $# -eq 3 ] || die 64 "usage: winpc sync <env> <repo dir> <sha>"
+    local env=$1 dir=$2 sha=$3 root links path subsha paths='' pairs='' rc
+    check_env "$env"
+    [ -d "$dir" ] || die 64 "sync needs the local repo dir, not '$dir'"
+    resolve "$dir" "$sha"
+    root=$(env_root "$env")
+    links=$(gitlinks "$dir" "$full" "") || die 65 "can't list $full's submodules"
+    if [ -n "$links" ]; then
+        while read -r path subsha; do
+            [[ $path =~ ^[A-Za-z0-9_./-]+$ ]] || die 65 "submodule path not supported: $path"
+            git -C "$dir/$path" cat-file -e "$subsha^{commit}" 2> /dev/null \
+                || die 65 "submodule $path: commit $subsha isn't in $dir/$path (git submodule update --init --recursive)"
+            paths="$paths $path" pairs="$pairs $path $subsha"
+        done <<< "$links"
+    fi
+    # shellcheck disable=SC2086 # paths and pairs are word lists of validated paths and shas
+    remote "$env" op_prepare "$name" $paths || die "$?" "can't prepare the clone"
+    push_one "$env" "$dir" "$root/$name" "$full" || die "$?" "push of $full failed"
+    if [ -n "$links" ]; then
+        while read -r path subsha; do
+            push_one "$env" "$dir/$path" "$root/$name/$path" "$subsha" || die "$?" "push of $path ($subsha) failed"
+        done <<< "$links"
+    fi
+    # shellcheck disable=SC2086
+    remote "$env" op_checkout "$name" "$full" $pairs
+    rc=$?
+    [ $rc -eq 0 ] || die "$rc" "checkout of $full failed"
+    say "synced $name $full to $env:$root/$name${paths:+ (submodules:$paths)}"
+}
+
+# --- runs ---
+
+# parse_run_args <args...>: <env> <repo> <sha> --task <id> -- <command...>; sets env repo sha
+# task and leaves the command in cmd_args
+parse_run_args() {
+    [ $# -ge 6 ] && [ "$4" = --task ] && [ "$6" = -- ] && [ $# -ge 7 ] \
+        || die 64 "usage: winpc $verb <env> <repo> <sha> --task <id> -- <command...>"
+    env=$1 repo=$2 sha=$3 task=$5
+    shift 6
+    cmd_args=("$@")
+    check_env "$env"
+    [[ $task =~ ^[A-Za-z0-9_-]+$ ]] || die 64 "bad task id '$task' (letters, digits, _ and -)"
+    resolve "$repo" "$sha"
+}
+
+new_run_id() { printf '%s-%s-%s-%04x\n' "$task" "${full:0:12}" "$(date -u +%Y%m%dT%H%M%SZ)" "$RANDOM"; }
+
+check_run_id() { [[ $1 =~ ^[A-Za-z0-9_-]+$ ]] || die 64 "bad run id '$1'"; }
+
+# break_stale_lock <env>: after a 75, frees the PC GPU lock if its holder's process is gone (or a
+# start never handed it over within 2 minutes). Returns 0 if it broke it.
+break_stale_lock() {
+    local env=$1 line henv hpid hwinpid hepoch f
+    line=$(remote "$env" op_lock_holder 2> /dev/null) || return 1
+    [ -n "$line" ] || return 1
+    for f in $line; do
+        case $f in env=*) henv=${f#env=} ;; pid=*) hpid=${f#pid=} ;; winpid=*) hwinpid=${f#winpid=} ;; epoch=*) hepoch=${f#epoch=} ;; esac
+    done
+    case ${henv:-} in native | wsl) ;; *) return 1 ;; esac
+    if [ "${hpid:-}" = pending ]; then
+        case ${hepoch:-} in '' | *[!0-9]*) return 1 ;; esac
+        [ $(($(date +%s) - hepoch)) -gt 120 ] || return 1
+    else
+        case ${hpid:-} in '' | *[!0-9]*) return 1 ;; esac
+        remote "$henv" op_pid_alive "$hpid" "${hwinpid:--}" 2> /dev/null
+        [ $? -eq 1 ] || return 1
+    fi
+    remote "$env" op_lock_break "$line" || return 1
+    echo "winpc: broke a stale PC GPU lock ($line)" >&2
+}
+
+# fetch_logs <env> <id> <dest>: the run's new build/logs and screenshots, under their repo paths
+fetch_logs() {
+    local tarf rc
+    tarf=$(mktemp "${TMPDIR:-/tmp}/winpc-logs.XXXXXX") || return 70
+    remote "$1" op_logs_tar "$2" > "$tarf"
+    rc=$?
+    if [ $rc -eq 0 ] && [ -s "$tarf" ]; then
+        tar -xf "$tarf" -C "$3" || rc=70
+    fi
+    rm -f "$tarf"
+    return $rc
+}
+
+# finish <result> <dest>: reports a finished run's result line and exits accordingly
+finish() {
+    say "logs in $2"
+    case $1 in
+        "exit "*) say "command exited ${1#exit }"; exit "${1#exit }" ;;
+        "preempted "*) say "preempted: watcher busy (${1#preempted }); requeue the run"; exit 69 ;;
+        stopped) say "stopped"; exit 69 ;;
+        *) say "run ended without a result ($1)"; exit 70 ;;
+    esac
+}
+
+cmd_run() {
+    local env repo sha task name full id dest log rc result attempt
+    local -a cmd_args
+    parse_run_args "$@"
+    grant
+    id=$(new_run_id)
+    dest="$cfg_logs_root/$task/$full"
+    mkdir -p "$dest" || die 70 "can't make $dest"
+    log="$dest/winpc-$id.log"
+    for attempt in 1 2; do
+        remote "$env" op_run "$name" "$full" "$task" "$id" "${cmd_args[@]}" < /dev/null \
+            | tee "$log" | grep --line-buffered -E "$summary_re"
+        rc=${PIPESTATUS[0]}
+        result=$(sed -n "s/^@@winpc-$id //p" "$log" | tail -n 1)
+        [ -n "$result" ] && break
+        if [ "$rc" -eq 75 ] && [ $attempt -eq 1 ] && break_stale_lock "$env"; then continue; fi
+        [ "$rc" -eq 0 ] && rc=70
+        die "$rc" "run $id didn't run to the end (exit $rc)"
+    done
+    fetch_logs "$env" "$id" "$dest" || say "couldn't copy the logs back"
+    finish "$result" "$dest"
+}
+
+cmd_start() {
+    local env repo sha task name full id rc attempt
+    local -a cmd_args
+    parse_run_args "$@"
+    grant
+    id=$(new_run_id)
+    for attempt in 1 2; do
+        remote "$env" op_start "$name" "$full" "$task" "$id" "${cmd_args[@]}" < /dev/null > /dev/null
+        rc=$?
+        [ $rc -eq 0 ] && break
+        if [ $rc -eq 75 ] && [ $attempt -eq 1 ] && break_stale_lock "$env"; then continue; fi
+        die "$rc" "start failed"
+    done
+    say "started $id (winpc poll $env $id; winpc fetch $env $id)"
+}
+
+cmd_poll() {
+    [ $# -eq 2 ] || die 64 "usage: winpc poll <env> <run id>"
+    local out rc
+    check_env "$1"
+    check_run_id "$2"
+    out=$(remote "$1" op_poll "$2" < /dev/null)
+    rc=$?
+    [ $rc -eq 0 ] || exit $rc
+    printf '%s\n' "$out"
+    case $(printf '%s\n' "$out" | head -n 1) in
+        "state: running" | "state: starting") exit 75 ;;
+    esac
+    exit 0
+}
+
+cmd_fetch() {
+    [ $# -eq 2 ] || die 64 "usage: winpc fetch <env> <run id>"
+    local env=$1 id=$2 meta task sha dest state rc
+    check_env "$env"
+    check_run_id "$id"
+    meta=$(remote "$env" op_meta "$id" < /dev/null) || exit
+    task=$(printf '%s\n' "$meta" | sed -n 's/^task=//p')
+    sha=$(printf '%s\n' "$meta" | sed -n 's/^sha=//p')
+    [[ $task =~ ^[A-Za-z0-9_-]+$ ]] && [[ $sha =~ ^[0-9a-f]{40}$ ]] || die 70 "bad meta for $id"
+    dest="$cfg_logs_root/$task/$sha"
+    mkdir -p "$dest" || die 70 "can't make $dest"
+    remote "$env" op_output "$id" < /dev/null > "$dest/winpc-$id.log" || die "$?" "can't copy the output"
+    grep -E "$summary_re" "$dest/winpc-$id.log"
+    fetch_logs "$env" "$id" "$dest" || say "couldn't copy the logs back"
+    state=$(remote "$env" op_poll "$id" < /dev/null) || exit
+    state=$(printf '%s\n' "$state" | head -n 1)
+    case $state in
+        "state: running" | "state: starting") say "still running; logs so far in $dest"; exit 75 ;;
+        "state: lost") say "the run's process is gone without a result"; finish lost "$dest" ;;
+        *) finish "${state#state: }" "$dest" ;;
+    esac
+}
+
+cmd_stop() {
+    [ $# -eq 2 ] || die 64 "usage: winpc stop <env> <run id>"
+    check_env "$1"
+    check_run_id "$2"
+    remote "$1" op_stop "$2" < /dev/null
+}
+
+# --- data ---
+
+local_hashes() { # <dir> <name>
+    (cd "$1" && find "$2" -type f -exec shasum -a 256 {} + | LC_ALL=C sort)
+}
+
+cmd_put() {
+    [ $# -eq 3 ] || die 64 "usage: winpc put <env> <local path> <remote dir>"
+    local env=$1 src=$2 dir=$3 parent base want got rc
+    check_env "$env"
+    [ -e "$src" ] || die 65 "no $src"
+    parent=$(cd "$(dirname "$src")" && pwd) base=$(basename "$src")
+    want=$(local_hashes "$parent" "$base")
+    got=$({
+        remote_script "$env" op_put "$dir" "$base"
+        COPYFILE_DISABLE=1 tar -cf - -C "$parent" "$base"
+    } | "${ssh_cmd[@]}" "$cfg_host" "$(launcher "$env" bash)")
+    rc=$?
+    [ $rc -eq 255 ] && die 68 "$cfg_host unreachable or connection lost"
+    [ $rc -eq 0 ] || die "$rc" "put failed"
+    [ "$want" = "$got" ] || die 70 "put: SHA-256 mismatch after the copy"
+    say "put $src to $env:$dir/$base ($(printf '%s\n' "$want" | grep -c .) files, SHA-256 checked)"
+}
+
+cmd_get() {
+    [ $# -eq 3 ] || die 64 "usage: winpc get <env> <remote path> <local dir>"
+    local env=$1 src=$2 dir=$3 base want got statuses
+    check_env "$env"
+    base=$(basename "$src")
+    mkdir -p "$dir" || die 70 "can't make $dir"
+    remote "$env" op_get "$src" < /dev/null | tar -xf - -C "$dir"
+    statuses="${PIPESTATUS[0]} ${PIPESTATUS[1]}"
+    case $statuses in
+        "0 0") ;;
+        "68 "*) die 68 "get of $src failed" ;;
+        *) die 70 "get of $src failed" ;;
+    esac
+    want=$(remote "$env" op_hashes "$src" < /dev/null) || die "$?" "can't hash $src"
+    got=$(local_hashes "$dir" "$base")
+    [ "$want" = "$got" ] || die 70 "get: SHA-256 mismatch after the copy"
+    say "got $env:$src into $dir ($(printf '%s\n' "$want" | grep -c .) files, SHA-256 checked)"
+}
+
+# --- main ---
+
+[ $# -ge 1 ] || { usage >&2; exit 64; }
+verb=$1
+shift
+case $verb in
+    -h | --help | help) usage; exit 0 ;;
+    __git-ssh) git_ssh "$@" ;;
+    avail) cmd_avail "$@"; exit ;;
+esac
+load_config
+case $verb in
+    status) [ $# -eq 0 ] || die 64 "usage: winpc status"; cmd_status ;;
+    sync) cmd_sync "$@" ;;
+    run) cmd_run "$@" ;;
+    start) cmd_start "$@" ;;
+    poll) cmd_poll "$@" ;;
+    fetch) cmd_fetch "$@" ;;
+    stop) cmd_stop "$@" ;;
+    put) cmd_put "$@" ;;
+    get) cmd_get "$@" ;;
+    *) usage >&2; exit 64 ;;
+esac
