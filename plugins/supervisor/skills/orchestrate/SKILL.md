@@ -38,6 +38,10 @@ code reading. A task graph lists:
 - the decisions the user must make, each with options and a recommendation, asked together up
   front.
 
+**Reviewing a plan:** a plan past about 10 tasks gets one review round on its risky core (the
+interfaces between tasks, the order, the shared files and the user's decisions), not on each
+task's wording. Per-task details get caught in that task's implementation review.
+
 The plan goes in `~/code/.supervisor/plans/` (section 3b), split by task once it's long.
 
 Some things limit parallelism on this machine:
@@ -45,7 +49,12 @@ Some things limit parallelism on this machine:
   second machine, used only through `~/.claude/skills/orchestrate/winpc` (usage: `winpc --help`),
   which grants runs only while the user isn't gaming and has its own GPU lock;
 - memory-heavy builds (personal-site's Gradle and e2e) need care;
-- tasks editing the same files go in sequence.
+- tasks editing the same files go in sequence;
+- the agent cap (the ledger's `## Agent cap`) counts implementers, planners and fixers. A
+  reviewer or test-runner runs on top of it, one at a time, so a finished implementation never
+  waits for a slot;
+- the usage limit: start the second Opus worker of a batch only after the first one has written
+  its first checkpoint, so one limit hit doesn't kill both during setup.
 
 ## 3. Brief a worker
 
@@ -70,8 +79,9 @@ Spawn workers in the background with `run_in_background`. Each brief contains:
 lines: the status, the commit sha, the verdict or counts, and that heading as the pointer. When
 a heading repeats (a rerun), the last one counts. Read the full report only when the handback
 isn't enough to decide the next step. Reviewers and test-runners have no Write or Edit tools, so
-they append with one quoted heredoc (`cat >> <task file>`), limited to that file. Planners are
-read-only, so they return the full report and you write it into the task file. Helpers return
+they append with one quoted heredoc (`cat >> <task file>`), limited to that file. Planners write
+only under `~/code/.supervisor/plans/` and to their task file: they write the plan there and
+hand back the pointer. Helpers return
 their result inline by default, since it's usually text you need right away; ask for the task
 file in the brief when it's long.
 
@@ -85,7 +95,8 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
   - agent: the type, plus its id *for this session only* (ids don't survive a restart);
   - stage: `planned` | `implementing` | `review N` (reviewer running) | `addressing N`
     (implementer on findings) | `fixing` | `pushed` | `ci` | `awaiting-merge` | `approved` |
-    `merging` | `merged` (absorb pending) | `blocked` | `abandoned`, plus `awaiting-approval`
+    `merging` | `merged` (absorb pending) | `blocked` | `stalled (rate limit, resets HH:MM)` |
+    `abandoned`, plus `awaiting-approval`
     (a plan waiting for the user) and `reproducing` (a rerun before review) for research
     experiments, as the `research` skill describes;
   - commit: the exact sha under review or CI, which is what may be merged (this is orchestration
@@ -112,14 +123,20 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
   ledger.py set <id> stage="review 1" commit=<sha> next-action="…"
   ledger.py show <id>
   ledger.py delete <id>
+  ledger.py gpu show                 # prints the holder, or none
+  ledger.py gpu claim <holder>       # exit 2 if someone else holds it
+  ledger.py gpu release <holder>     # exit 2 if someone else holds it
   ```
   Fields are the column names, case-insensitive, with `-` for spaces (`ci`, `next-action`); an
-  empty value stores `—`. `add` creates the ledger if it's missing. Edit the notes below the
+  empty value stores `—`. `add` creates the ledger if it's missing. The `gpu` commands edit
+  the `- Holder: <name>.` line under `## GPU slot`. Briefs tell workers to claim the slot with
+  their task id before a GPU run or a push through a GPU pre-push hook, release it afterwards, and
+  wait and retry (don't take it) on exit 2. Edit the notes below the
   table as before. Tests: `test_ledger.sh [<copy of a ledger>]`, never on the real file.
 - **`tasks/<id>.md`:** the brief, the worker's `## Checkpoints`, every `## Report (…)`
   (status, decisions, learnings), review findings (`## Review N (…)`) and CI or test failure
-  reports. Workers append their own checkpoints, reports and findings; you write planner
-  reports and the user's decisions there **before** acting on them or spawning the next worker.
+  reports. Workers append their own checkpoints, reports and findings; you write the user's
+  decisions there **before** acting on them or spawning the next worker.
   Nothing a later step needs may live only in your context.
 - **`plans/<project>/`:** a task graph past about 200 lines is split into `overview.md`
   (goal, findings, architecture, batches, decisions, risks: what every task shares) and one
@@ -254,7 +271,9 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
      - preferences and decisions go in that repo's memory dir (see the `projects` memory).
        Those dirs load only in sessions started inside the repo, so read them yourself when
        planning work there and copy what matters into briefs;
-     - cross-project items go in the supervisor's memory.
+     - cross-project items go in the supervisor's memory;
+     - the reports' `Plan deltas` (where the code differs from `plans/<project>/`) go into
+       the plan, so later briefs start from what was built.
    - Stop the worker if it's still running. Only now, with the row at `merged` and the learnings
      absorbed, delete its ledger row (`ledger.py delete <id>`) and task file, and the ledger
      itself and its `.ledger.md.lock` once it's empty (the script says when no rows are left).
@@ -276,3 +295,8 @@ and on the remote. Then delete its row and task file.
   work merged), suggest the user run `/compact`.
 - When a command keeps prompting for permission (in your session or workers'), tell the user the
   exact rule to add to the allowlist.
+- Status messages to the user are one or two lines per event (a report, a review verdict, CI).
+  Fuller summaries are kept for merge asks and phase ends.
+- **Usage limit:** when workers die on a usage limit (HTTP 429), set each row to
+  `stalled (rate limit, resets HH:MM)`, keeping its worktree, and schedule a wakeup for the reset
+  time. Then resume them from their checkpoints, staggered as in section 2.

@@ -61,6 +61,7 @@ for it):
 ### Docs updated (file: what; or none)
 ### Checks run (command → exit code)
 ### Decisions (potentially controversial, with reasons)
+### Plan deltas (where the code differs from the plan in plans/<project>/: names, formats, interfaces, order; or none)
 ### Learnings (memory candidates: preference, decision, gotcha or open item; one line each, with where it belongs: repo docs or memory)
 ### Open questions / follow-ups
 ```
