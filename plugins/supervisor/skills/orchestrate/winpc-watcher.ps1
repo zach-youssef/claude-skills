@@ -229,7 +229,7 @@ function Invoke-SelfTest {
     Check 'epic none' (Get-EpicInstallLocations @()).Count 0
 
     $mon = New-Object psobject -Property @{ Left = 0; Top = 0; Right = 2560; Bottom = 1440 }
-    $r = { param($l, $t, $rr, $b) New-Object psobject -Property @{ Left = $l; Top = $t; Right = $rr; Bottom = $b } }
+    $r = { param([int]$l, [int]$t, [int]$rr, [int]$b) New-Object psobject -Property @{ Left = $l; Top = $t; Right = $rr; Bottom = $b } }
     Check 'rect exact' (Test-RectCoversMonitor (& $r 0 0 2560 1440) $mon) $true
     Check 'rect larger (borderless)' (Test-RectCoversMonitor (& $r -8 -8 2568 1448) $mon) $true
     Check 'rect maximized window' (Test-RectCoversMonitor (& $r 0 0 2560 1400) $mon) $false
