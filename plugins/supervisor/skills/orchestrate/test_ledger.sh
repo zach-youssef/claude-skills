@@ -144,6 +144,44 @@ grep -q "no rows left" "$scratch/err" && pass "delete warns when the table is em
 expect "add to empty table" 0 L add again
 row again >/dev/null && pass "row added to empty table" || fail "empty-table add"
 
+# gpu slot
+cat >"$f" <<'LEDGER'
+# Supervisor ledger
+
+| id | repo | branch | worktree | agent | stage | commit | CI | next action |
+|---|---|---|---|---|---|---|---|---|
+| a-one | a | one | — | — | planned | — | — | — |
+
+## GPU slot
+- Holder: none. Queue: empty. (notes. with dots)
+
+## Task graph
+- Holder: decoy. not the slot
+LEDGER
+holder() { python3 "$ledger" -f "$f" gpu show; }
+expect "gpu show" 0 L gpu show
+[ "$(holder)" = none ] && pass "gpu show prints the holder" || fail "gpu show: $(holder)"
+expect "gpu claim" 0 L gpu claim a-one
+[ "$(holder)" = a-one ] && pass "claim sets the holder" || fail "claim holder: $(holder)"
+grep -qxF -- "- Holder: a-one. Queue: empty. (notes. with dots)" "$f" && pass "claim keeps the rest of the line" || fail "claim line: $(grep Holder "$f" | head -1)"
+grep -qxF -- "- Holder: decoy. not the slot" "$f" && pass "claim leaves other sections alone" || fail "decoy changed"
+expect "gpu claim again by the holder" 0 L gpu claim a-one
+snapshot
+expect "gpu claim by another fails with 2" 2 L gpu claim b-two
+unchanged "refused claim"
+expect "gpu release by another fails with 2" 2 L gpu release b-two
+unchanged "refused release"
+expect "gpu claim needs a holder" 2 L gpu claim
+expect "gpu holder can't contain a dot" 1 L gpu claim x.y
+expect "gpu holder can't be none" 1 L gpu claim none
+expect "gpu release" 0 L gpu release a-one
+[ "$(holder)" = none ] && pass "release frees the slot" || fail "release holder: $(holder)"
+expect "gpu release when free is a no-op" 0 L gpu release a-one
+expect "gpu holder with a role" 0 L gpu claim "a-one review"
+[ "$(holder)" = "a-one review" ] && pass "holder with a space" || fail "spaced holder: $(holder)"
+printf '# x\n\n## Other\n' >"$f"
+expect "gpu without the heading fails" 1 L gpu show
+
 # optional: round-trip a copy of a real ledger
 if [ $# -ge 1 ]; then
   cp "$1" "$f"; snapshot

@@ -6,6 +6,9 @@ Usage:
   ledger.py [-f FILE] set <id> <field>=<value> [<field>=<value> ...]
   ledger.py [-f FILE] add <id> [<field>=<value> ...]
   ledger.py [-f FILE] delete <id>
+  ledger.py [-f FILE] gpu show
+  ledger.py [-f FILE] gpu claim <holder>
+  ledger.py [-f FILE] gpu release <holder>
 
 Fields are the table's column names, case-insensitive, with '-' or '_' for spaces
 (e.g. stage, agent, commit, ci, next-action). An empty value is stored as '—'.
@@ -22,6 +25,12 @@ Fails loudly (exit 1, message on stderr) when the id matches no row or more than
 one, a field is unknown, a value contains '|' or a newline, or the table is
 malformed. `add` creates the ledger, with the standard columns, if it doesn't
 exist.
+
+`gpu` edits the `- Holder: <name>.` line under the `## GPU slot` heading, under the
+same lock, keeping the rest of that line. `claim` fails (exit 2) when someone else
+holds the slot, and is a no-op when the claimant already does; `release` fails
+(exit 2) when someone else holds it, and is a no-op when it's free. Holder names
+can't contain '.', '|' or a newline, and can't be `none`.
 """
 
 import argparse
@@ -41,6 +50,15 @@ CELL_SPLIT = re.compile(r"(?<!\\)\|")
 
 class LedgerError(Exception):
     pass
+
+
+class SlotHeld(LedgerError):
+    pass
+
+
+GPU_HEADING = "## GPU slot"
+HOLDER_LINE = re.compile(r"^- Holder: ([^.\n]*)\.(.*)$")
+FREE = "none"
 
 
 def cells(line):
@@ -171,9 +189,61 @@ def locked(path, timeout):
         os.close(fd)
 
 
+def holder_line(lines):
+    """Return the index of the GPU slot's Holder line."""
+    try:
+        start = next(i for i, l in enumerate(lines) if l.strip() == GPU_HEADING)
+    except StopIteration:
+        raise LedgerError(f"no '{GPU_HEADING}' heading")
+    for i in range(start + 1, len(lines)):
+        if lines[i].startswith("## "):
+            break
+        if HOLDER_LINE.match(lines[i].rstrip("\n")):
+            return i
+    raise LedgerError(f"no '- Holder: <name>.' line under '{GPU_HEADING}'")
+
+
+def gpu(args):
+    try:
+        lines = read_lines(args.file)
+    except FileNotFoundError:
+        raise LedgerError(f"{args.file} doesn't exist")
+    i = holder_line(lines)
+    holder, rest = HOLDER_LINE.match(lines[i].rstrip("\n")).groups()
+    holder = holder.strip()
+    if args.action == "show":
+        print(holder)
+        return
+    name = (args.holder or "").strip()
+    if not name or name == FREE or any(c in name for c in ".|\n\r"):
+        raise LedgerError(f"bad holder name {name!r}: non-empty, not '{FREE}', no '.', '|' or newline")
+    if args.action == "claim":
+        if holder == name:
+            print(f"GPU slot already held by {name}", file=sys.stderr)
+            return
+        if holder != FREE:
+            raise SlotHeld(f"GPU slot held by {holder}")
+        new = name
+    else:
+        if holder == FREE:
+            print("GPU slot already free", file=sys.stderr)
+            return
+        if holder != name:
+            raise SlotHeld(f"GPU slot held by {holder}, not {name}")
+        new = FREE
+    lines[i] = f"- Holder: {new}.{rest}\n"
+    write_atomically(args.file, lines)
+
+
 def run(args):
     args.file = os.path.realpath(args.file)
-    if args.command == "show":
+    if args.command == "gpu":
+        if args.action == "show":
+            gpu(args)
+        else:
+            with locked(args.file, args.lock_timeout):
+                gpu(args)
+    elif args.command == "show":
         edit(args)
     else:
         with locked(args.file, args.lock_timeout):
@@ -234,9 +304,17 @@ def main():
         p.add_argument("id")
         if takes_fields:
             p.add_argument("fields", nargs="*", metavar="field=value")
+    g = sub.add_parser("gpu", help="show, claim or release the GPU slot")
+    g.add_argument("action", choices=["show", "claim", "release"])
+    g.add_argument("holder", nargs="?", help="who claims or releases it (a task id, optionally plus a role)")
     args = parser.parse_args()
+    if args.command == "gpu" and args.action != "show" and not args.holder:
+        parser.error(f"gpu {args.action} needs a holder")
     try:
         run(args)
+    except SlotHeld as e:
+        print(f"ledger.py: {e}", file=sys.stderr)
+        sys.exit(2)
     except (LedgerError, OSError) as e:
         print(f"ledger.py: {e}", file=sys.stderr)
         sys.exit(1)
