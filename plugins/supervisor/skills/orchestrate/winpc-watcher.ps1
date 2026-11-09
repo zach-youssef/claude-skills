@@ -149,7 +149,7 @@ function Test-IgnoredWindowClass {
 }
 
 function Get-GpuHogs {
-    # From GPU Engine counter samples (each has Path and Value), the pids whose busiest engine
+    # From GPU Engine counter samples (each has Path and CookedValue, as PerformanceCounterSample does), the pids whose busiest engine
     # type (utilization summed over that type's engines) reaches $Threshold, as objects with
     # Pid and Percent, busiest first.
     param($Samples, [double]$Threshold)
@@ -158,7 +158,7 @@ function Get-GpuHogs {
         if ($s.Path -notmatch 'pid_(\d+)_.*engtype_([^)\\]+)') { continue }
         $key = $Matches[1] + '|' + $Matches[2]
         if (-not $sum.ContainsKey($key)) { $sum[$key] = 0.0 }
-        $sum[$key] += [double]$s.Value
+        $sum[$key] += [double]$s.CookedValue
     }
     $best = @{}
     foreach ($k in $sum.Keys) {
@@ -240,7 +240,7 @@ function Invoke-SelfTest {
     Check 'class desktop' (Test-IgnoredWindowClass 'WorkerW') $true
     Check 'class game' (Test-IgnoredWindowClass 'UnrealWindow') $false
 
-    $s = { param($p, $v) New-Object psobject -Property @{ Path = $p; Value = $v } }
+    $s = { param($p, $v) New-Object psobject -Property @{ Path = $p; CookedValue = $v } }
     $samples = @(
         (& $s '\\pc\gpu engine(pid_100_luid_0x0_0x1_phys_0_eng_0_engtype_3d)\utilization percentage' 40),
         (& $s '\\pc\gpu engine(pid_100_luid_0x0_0x1_phys_0_eng_1_engtype_3d)\utilization percentage' 30),
