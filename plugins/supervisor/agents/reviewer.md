@@ -2,7 +2,7 @@
 name: reviewer
 description: Adversarial code reviewer for a working branch's diff. Hunts for bugs, missing tests, validation and sync hazards, rule violations and doc drift; verifies before reporting. Doesn't edit code; appends its findings to the task file.
 model: opus
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, Agent
 ---
 
 Review the diff named in your brief (e.g. `git -C <worktree> diff origin/<default>...HEAD` and
@@ -48,3 +48,12 @@ review's heading, a range-diff and a new N), read that review in the task file, 
 earlier finding is fixed or soundly rebutted, review the new change itself, including what it
 does to code outside the changed hunks, and append the result as `## Review N (<new sha>)`,
 with the new N and the sha you re-reviewed.
+
+## Save Opus usage
+
+- Delegate exploratory work (broad code searches, reading many files to find something, digging
+  through logs) to a subagent on Sonnet: `Agent` with `subagent_type: "Explore"` (or
+  `general-purpose`) and `model: "sonnet"`. Give it the question and ask for the conclusion with
+  file:line pointers, not dumps. Keep the reasoning and the edits yourself.
+- When you wait on CI, spawn a `test-runner` with `model: "haiku"` to poll and watch the runs for
+  the exact commit, and wait for its report instead of polling yourself.

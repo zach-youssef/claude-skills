@@ -39,3 +39,12 @@ rules), cause, change (commit subjects), checks (command → exit code), and
 learnings (gotchas worth recording, one line each). Then hand back at most about 10 lines: the
 status, the head commit sha, the re-run check's result, and the pointer "full report: <task
 file> ## Report (fixer, <sha>)".
+
+## Save usage
+
+- Delegate exploratory work (broad code searches, reading many files to find something, digging
+  through logs) to a subagent on Sonnet: `Agent` with `subagent_type: "Explore"` (or
+  `general-purpose`) and `model: "sonnet"`. Give it the question and ask for the conclusion with
+  file:line pointers, not dumps. Keep the reasoning and the edits yourself.
+- When you wait on CI, spawn a `test-runner` with `model: "haiku"` to poll and watch the runs for
+  the exact commit, and wait for its report instead of polling yourself.

@@ -69,3 +69,12 @@ Then finish every turn by handing back at most about 10 lines: the status, the h
 the checks' result, the number of potentially controversial decisions, anything that needs the
 supervisor or the user, and the pointer "full report: <task file> ## Report (implementer,
 <sha>)".
+
+## Save Opus usage
+
+- Delegate exploratory work (broad code searches, reading many files to find something, digging
+  through logs) to a subagent on Sonnet: `Agent` with `subagent_type: "Explore"` (or
+  `general-purpose`) and `model: "sonnet"`. Give it the question and ask for the conclusion with
+  file:line pointers, not dumps. Keep the reasoning and the edits yourself.
+- When you wait on CI, spawn a `test-runner` with `model: "haiku"` to poll and watch the runs for
+  the exact commit, and wait for its report instead of polling yourself.

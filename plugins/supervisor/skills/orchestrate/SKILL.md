@@ -227,7 +227,7 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
 5. Record the pushed commit (`git -C <worktree> rev-parse HEAD`, which must equal
    `origin/<branch>`) in the ledger (`ledger.py set <id> stage=ci commit=<sha>`, then
    `ci=<run ids>` once the runs exist).
-   A `test-runner` watches CI for that exact commit: it polls `gh run list --commit <sha>` until
+   A `test-runner` on Haiku (`model: "haiku"`) watches CI for that exact commit: it polls `gh run list --commit <sha>` until
    the runs appear, then `gh run watch <id> --exit-status` for **every** run on that commit.
    It also runs whatever needs real hardware (MoltenVK GPU tests) locally. Until a repo has CI,
    its local stack verification is the check.
