@@ -68,7 +68,9 @@ Spawn workers in the background with `run_in_background`. Each brief contains:
   - the repo's `CLAUDE.md` and the focused docs it links to;
   - the memories that matter, copied or summarised, since workers don't load memory;
   - the decisions the user already made.
-- **Constraints:** scope, and anything the user ruled out.
+- **Constraints:** scope, and anything the user ruled out. Rules every worker already has in
+  its definition (no `git stash`, the GPU slot claim, the gitlink check, commit attribution from
+  its own system reminder) aren't repeated; a brief adds only task-specific rules.
 - **The report format** in the agent's definition. It's already there; just don't override it.
 - **The task file** `~/code/.supervisor/tasks/<id>.md`. Write the brief there first, then pass
   its path. The worker appends checkpoints to it, which is what lets work resume.
@@ -227,9 +229,13 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
 5. Record the pushed commit (`git -C <worktree> rev-parse HEAD`, which must equal
    `origin/<branch>`) in the ledger (`ledger.py set <id> stage=ci commit=<sha>`, then
    `ci=<run ids>` once the runs exist).
-   A `test-runner` on Haiku (`model: "haiku"`) watches CI for that exact commit: it polls `gh run list --commit <sha>` until
-   the runs appear, then `gh run watch <id> --exit-status` for **every** run on that commit.
-   It also runs whatever needs real hardware (MoltenVK GPU tests) locally. Until a repo has CI,
+   Watch CI yourself with one background shell loop (`run_in_background`): poll
+   `gh run list --commit <sha>` until the runs appear, then `gh run watch <id> --exit-status` on
+   **every** run on that commit, one watch at a time (several at once trip GitHub's secondary
+   rate limit, and a watch that exits 1 with no run output means "unknown", not red: check
+   `gh run view` before calling it a failure). The loop costs no tokens until it exits. Spawn a
+   `test-runner` instead (Haiku when it's CI only) when the commit also needs local hardware
+   checks (MoltenVK GPU tests), so one worker runs both and reports once. Until a repo has CI,
    its local stack verification is the check.
 
    On failure, the test-runner's report is in the task file: point a `fixer` at it for
@@ -244,7 +250,17 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
    don't read them), and send that through review and CI too. Then **ask the user for
    permission to merge** (`awaiting-merge`): give a short summary and the potentially
    controversial decisions from the reports. Once they agree (`approved`, then `merging`),
-   merge **on the remote**, never by checking out the user's checkout:
+   merge **on the remote**, never by checking out the user's checkout.
+
+   **Batch pre-approval:** when a batch starts, ask the user once whether its tasks may merge as
+   soon as review is clean and CI is green. Record a yes under the ledger's `## Pending user
+   decisions` as `merge pre-approved: <ids> (user, <date>)`; it covers those ids only and is
+   deleted with the batch. A pre-approved task goes from `ci` green straight to `merging`, and
+   the merge summary (what changed, the controversial decisions) goes to the user as a status
+   message when it merges. A finding rebutted or left open after round 2 still asks: the user
+   decides those.
+
+   The merge itself:
    - `git -C <repo> fetch`. If the default branch moved, `git -C <worktree> rebase
      origin/<default>` (a conflict goes to the implementer, at `addressing N`). Then back to
      `review N` with the same range-diff, `git push --force-with-lease` the working branch, and
@@ -267,7 +283,13 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
      - repo knowledge already went into the repo's docs in step 6. Prefer that: docs reach every
        worker, while memory reaches them only through your briefs. Trust the reports' "Docs
        updated" items rather than reading docs or diffs to check. Anything learned later goes
-       in a follow-up branch;
+       to `decisions/<project>.md` tagged `repo docs`, and from there into a **docs sweep**:
+       once a project holds five or more such lines, queue a docs-only task on that repo
+       (branch `docs-sweep-<YYYY-MM-DD>`) for a Sonnet `fixer`, with the lines in its brief.
+       It writes them into the repo's docs, and the sweep gets one review round from a
+       reviewer run on Sonnet (`model: "sonnet"`; it checks each line landed where the docs'
+       structure puts it and matches the code), then CI and the merge ask; delete the lines
+       once it merges;
      - preferences and decisions go in that repo's memory dir (see the `projects` memory).
        Those dirs load only in sessions started inside the repo, so read them yourself when
        planning work there and copy what matters into briefs;

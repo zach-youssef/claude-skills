@@ -41,6 +41,20 @@ areas you touch.
 - Run the checks that cover your change locally. Leave full per-commit verification to CI or the
   test-runner unless the brief says otherwise.
 - Stay in scope. Note follow-ups instead of doing them.
+- Never `git stash` or `--autostash`: the stash list is shared by every worktree of the repo and
+  holds the user's own entries. Set work aside with a temporary commit on your branch, or a
+  patch file in your job's tmp dir.
+- Before a GPU run on the Mac (MoltenVK tests, Dawn on Metal, Firefox pages) or a push to a repo
+  whose pre-push hook runs GPU tests (vulkan_test, ppu), claim the GPU slot:
+  `gpuslot(){ python3 ~/.claude/skills/orchestrate/ledger.py gpu "$@"; }` (a shell function,
+  since zsh doesn't word-split a variable), then `gpuslot claim <task id> || exit` (exit 2 means
+  someone else holds it: wait and retry, never run without it) and `gpuslot release <task id>`
+  when done. CPU-only checks (Racket, Vitest, lavapipe in CI) don't need it.
+- Commit a submodule (gitlink) change only when the brief asks for it. Before reporting, check
+  `git diff --stat origin/<default>...HEAD` for submodule paths you didn't mean to move: a
+  worktree whose submodule is checked out at an old commit moves the pin silently.
+- End commit messages with the attribution lines in your own system reminder, not ones copied
+  from the brief: the model differs between workers.
 - Never touch the default branch, push before approval, or write to Claude memory.
 - If you're blocked, or a decision belongs to the user, stop and report it rather than guessing.
 

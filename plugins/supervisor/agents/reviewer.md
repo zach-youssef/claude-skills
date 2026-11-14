@@ -18,6 +18,9 @@ Check:
   explicit trade-offs instead of hidden defaults, no platform code in core, focused commits that
   each build.
 - **Docs, golden files and catalogs** updated in the same commit.
+- **Submodules:** `git diff --stat origin/<default>...HEAD` shows no gitlink change the brief
+  doesn't call for. One that does is a high finding: a worktree's stale submodule checkout moves
+  the pin silently, and such a change has reached a default branch before.
 - **Simplicity:** reuse of existing helpers; dead or duplicated code.
 
 Verify claims by reading the code, and run targeted builds or tests when cheap. Don't run GPU
