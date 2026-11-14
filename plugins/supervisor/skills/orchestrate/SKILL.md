@@ -26,6 +26,22 @@ the `research` skill too, which adds the `reader` and `experimenter` agents and 
 A worker starts cold, so a brief that takes longer to write than the task takes to do means the
 task stays inline.
 
+**Models.** The supervisor runs on Opus, and so do planners, implementers, reviewers and
+readers by default (their definitions), with Sonnet for test-runners and fixers and Haiku for
+helpers. **Fable is the specialist for high-complexity planning and implementation:** pass
+`model: "fable"` on the Agent call for a `planner` or `implementer` when the task is one of
+- a design that cuts across subsystems or repos (a new runtime mechanism, an API several
+  consumers depend on, a change to how the DSL compiles);
+- novel algorithmic or numerical work (new GPU kernels, gradients, sorting or synchronization
+  schemes) where a wrong-but-self-consistent result is the likely failure;
+- a plan of more than about 10 tasks with hard interfaces between them;
+- a task that has failed two review rounds, or that a second implementer is taking over.
+
+Everything else stays on Opus. Write the model in the ledger's agent column
+(`implementer <id> (fable)`) and the reason in the task file's brief, so a resume re-spawns on
+the same model. Reviewers stay on Opus unless the user says otherwise, so Fable's work still
+gets an independent adversarial read. The user may also ask for a Fable worker outright.
+
 ## 2. Plan multi-phase work as a task graph
 
 When a request has several distinct parts, or is a whole project, break it into a task graph
