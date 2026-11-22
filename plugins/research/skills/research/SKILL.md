@@ -128,7 +128,7 @@ Write the brief to the task file (orchestrate §3), then spawn with its path.
 - Focus: <what the user cares about, e.g. "the claims an O(N) NumPy implementation can test">; or "general".
 - Related notes already in the KB: <ids from §6, or none>.
 - Existing note: <none | re-read: keep claim ids, add new ones after the last>.
-- Done when: kb.py check and kb.py index --check exit 0, every claim has a page or section reference, committed, report in this file.
+- Done when: kb.py check and kb.py index --check exit 0, every claim has a page or section reference, the note has an `## Assumptions` section and every live claim its assumption list (docs/knowledge-base.md "Assumptions"), committed, report in this file.
 ## Rules
 - PDFs stay in ~/code/research/papers/<id>/, never committed. Don't fetch papers beyond the ones above; list them under "Papers worth reading next".
 - Commit on the working branch only; don't push until the supervisor says the review is clean.
@@ -144,7 +144,7 @@ Write the brief to the task file (orchestrate §3), then spawn with its path.
 - Task: propose an experiment testing <claim ids, e.g. bridson2007poisson#C1, #C3; none withdrawn>.
 - Repo: /Users/zyoussef/code/research, branch exp-<slug> off origin/main, worktree ~/code/.supervisor/worktrees/research/exp-<slug>.
 - Constraints: <CPU only | GPU allowed (needs the slot at run time)>, budget ceiling <budget_wall_min, budget_downloads_mb>, ci_smoke <true | false>, domain repo <none | repo + what it must provide>.
-- Done when: experiments/<YYYY-MM-DD>-<slug>/plan.md is complete per docs/experiments.md (status: proposed, approved: empty), with a budget covering the run plus the supervisor's reproduction run, kb.py check and kb.py index --check exit 0, committed, report with Status: awaiting-approval.
+- Done when: experiments/<YYYY-MM-DD>-<slug>/plan.md is complete per docs/experiments.md (status: proposed, approved: empty), with its `assumptions` covering every assumption the tested claims use, `## Method` saying how each is met (or broken on purpose) and listing the planned correctness checks, a budget covering the run plus the supervisor's reproduction run, kb.py check and kb.py index --check exit 0, committed, report with Status: awaiting-approval.
 ## Rules
 - Write plan.md, plus the INDEX.md and Experiments blocks kb.py index regenerates from it: no code, no runs, no downloads.
 - Commit on the working branch only; don't push.
@@ -161,7 +161,7 @@ Write the brief to the task file (orchestrate §3), then spawn with its path.
 - Mode: run. Resume the worktree from the checkpoints above.
 - First commit: fill `approved: <user> <YYYY-MM-DD>` and set `status: approved` in plan.md, plus only the changes the User approval section requests and what kb.py index regenerates.
 - GPU: <not allowed | allowed only after the supervisor grants the slot; ask (SendMessage to "main") first and say when done>.
-- Done when: results.json passes kb.py check (including its `inputs` against HEAD), results.md matches it (`## Reproduce` restating plan.md's tolerances), plan.md has `status: done`, the tested notes' statuses follow the `verified` rule in docs/knowledge-base.md "Statuses", kb.py index has regenerated the backlinks, the smoke mode runs in under a minute, committed, report with Status: ready-for-review.
+- Done when: results.json passes kb.py check (including its `inputs` against HEAD), results.md matches it (`## Reproduce` restating plan.md's tolerances, `## Checks` reporting the correctness checks in `src/checks/`, which run first in both modes and pass), plan.md has `status: done`, the tested notes' statuses follow the `verified` rule in docs/knowledge-base.md "Statuses", kb.py index has regenerated the backlinks, the smoke mode runs in under a minute, committed, report with Status: ready-for-review.
 ```
 
 **Experimenter, abandon mode** (same task file, when the user rejects the plan):
@@ -216,7 +216,13 @@ doesn't generate renders itself: if they're missing, that's a finding. It checks
 - the important claims are there (the abstract's and the conclusion's at least), each with an
   id; existing claim ids aren't renumbered or reused;
 - `Implementation notes` give a source for every value the paper doesn't state (another paper,
-  the authors' code, a guess marked as one);
+  the authors' code, a guess marked as one). A reader's inference never sits inside a claim:
+  it goes in `Implementation notes` as `source: assumption`, or in `Assumptions` as
+  `(reader's inference)`;
+- `## Assumptions` (`docs/knowledge-base.md` "Assumptions") lists every condition another
+  setting could break, each with a reference or marked `(reader's inference)`; ids are stable;
+  every live claim carries the list of the assumptions it rests on, and the lists are right
+  (a claim that needs an unlisted condition is a medium finding);
 - frontmatter (title, authors, year, venue, ids, `pdf_sha256`) matches the paper; the TL;DR
   keeps to the format in `docs/knowledge-base.md` "Note format" and matches the claims;
 - `Related` links resolve and their relations (`extends`, `uses`, `contradicts`, `related`) are
@@ -235,8 +241,13 @@ is under `## Method`; nothing else changed besides what `kb.py index` regenerate
 - the criterion applied is the one fixed in the approved `plan.md` (diff `plan.md` against the
   approved commit in the task file's `## User approval (<sha>)`, before any rebase makes that
   sha unreachable; afterwards plan.md's `approved:` is the lasting record): no hypothesis,
-  claim, criterion, metric, threshold or tolerance changed after approval, and `approved:`
-  matches that section;
+  claim, assumption, criterion, metric, threshold or tolerance changed after approval, and
+  `approved:` matches that section;
+- `assumptions` in plan.md covers every assumption the tested claims use, and the setup meets
+  each one as `## Method` says, or breaks it deliberately with the reason given;
+- the correctness checks in `src/checks/` (`docs/experiments.md`) test the implementation's
+  math, not just that it runs; they ran first in both the full and smoke modes and passed, and
+  `results.md` `## Checks` reports them;
 - each claim under test has a verdict (`supports | contradicts | inconclusive`) that follows
   from the criterion and the numbers; a near miss is `inconclusive` or `contradicts`, not
   `supports`. With `exploratory: true`, every verdict is `inconclusive`;
