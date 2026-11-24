@@ -286,6 +286,12 @@ is under `## Method`; nothing else changed besides what `kb.py index` regenerate
   supervisor's reply; the slot's `Holder:` records it, naming the task by its ledger id or its
   plan code, e.g. X3), and says when it's done. With `gpu: no` in the plan, or no
   grant, it stops and reports `blocked` instead of running.
+- **Sharing the slot** (user 2026-11-24): the slot is exclusive for any step that measures speed
+  (latency, throughput, timing cells). Small steps (under about 1 GB of memory) that measure
+  only scores or behaviour may share it with the holder, provided the holder isn't timing at the
+  time. The experimenter says which kind its step is when it asks. The supervisor records a
+  sharer in the slot line (`Shared: <task>`), and both runs log in `results.md` what else was on
+  the GPU while they ran.
 - Experiments that need domain code (ZGAL in vulkan_test, vulkan_splatting) build it as a
   separate `implementer` task on a working branch in that repo, through the normal lifecycle.
   The experiment runs against the merged commit and records its sha.
