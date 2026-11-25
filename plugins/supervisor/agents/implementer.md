@@ -45,7 +45,7 @@ areas you touch.
   holds the user's own entries. Set work aside with a temporary commit on your branch, or a
   patch file in your job's tmp dir.
 - Before a GPU run on the Mac (MoltenVK tests, Dawn on Metal, Firefox pages) or a push to a repo
-  whose pre-push hook runs GPU tests (vulkan_test, ppu), claim the GPU slot:
+  whose pre-push hook runs GPU tests (zgal, ppu), claim the GPU slot:
   `gpuslot(){ python3 ~/.claude/skills/orchestrate/ledger.py gpu "$@"; }` (a shell function,
   since zsh doesn't word-split a variable), then `gpuslot claim <task id> || exit` (exit 2 means
   someone else holds it: wait and retry, never run without it) and `gpuslot release <task id>`

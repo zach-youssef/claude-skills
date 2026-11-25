@@ -292,7 +292,7 @@ is under `## Method`; nothing else changed besides what `kb.py index` regenerate
   time. The experimenter says which kind its step is when it asks. The supervisor records a
   sharer in the slot line (`Shared: <task>`), and both runs log in `results.md` what else was on
   the GPU while they ran.
-- Experiments that need domain code (ZGAL in vulkan_test, vulkan_splatting) build it as a
+- Experiments that need domain code (ZGAL in zgal, vulkan_splatting) build it as a
   separate `implementer` task on a working branch in that repo, through the normal lifecycle.
   The experiment runs against the merged commit and records its sha.
 

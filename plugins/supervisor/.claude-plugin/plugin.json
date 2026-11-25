@@ -1,6 +1,6 @@
 {
   "name": "supervisor",
-  "version": "1.12.0",
+  "version": "1.12.1",
   "description": "Supervisor/worker workflow: worker agents (planner, implementer, reviewer, test-runner, fixer, helper, poller) and the orchestrate skill the main session follows to delegate, review, push, wait for CI through the poller's watches, and merge.",
   "author": {
     "name": "zyoussef"

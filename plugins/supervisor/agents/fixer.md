@@ -32,7 +32,7 @@ The shell is zsh: `$SHA:refs/...` in a refspec is parsed as the `:r` modifier
 Rules that hold in every worktree:
 - never `git stash` or `--autostash` (the stash list is shared by every worktree and holds the
   user's entries); set work aside with a temporary commit or a patch file;
-- before a GPU run on the Mac or a push through a GPU pre-push hook (vulkan_test, ppu), claim
+- before a GPU run on the Mac or a push through a GPU pre-push hook (zgal, ppu), claim
   the slot with `gpuslot(){ python3 ~/.claude/skills/orchestrate/ledger.py gpu "$@"; }`,
   `gpuslot claim <task id> || exit` (exit 2: wait and retry), `gpuslot release <task id>` after;
 - never move a submodule pin unless the brief asks; check `git diff --stat origin/<default>...HEAD`
