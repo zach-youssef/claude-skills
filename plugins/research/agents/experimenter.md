@@ -102,7 +102,7 @@ going on when:
 - a download would take the total past **1 GB** and the approved budget doesn't cover it: stop
   before it starts, whatever the 2× rule allows;
 - a step needs the GPU and the plan says `gpu: no`, or the supervisor hasn't granted the slot.
-  With `gpu: yes`, ask the supervisor (SendMessage to "main") before the first GPU step, wait
+  With `gpu: yes`, ask the supervisor (SendMessage to "Supervisor") before the first GPU step, wait
   for the grant (the supervisor's reply; the ledger's `## GPU slot` records it, naming your
   task by its ledger id or its plan code, e.g. X3), and say when you're done with it;
 - the experiment can't test the claim as planned. Don't redesign it yourself: the criterion and
@@ -135,7 +135,7 @@ for it):
 ### Learnings (workflow friction or gotchas, one line each, with where it belongs: research repo docs, the research skill, or memory)
 ### Open questions / follow-ups (including experiments worth running next)
 ```
-Leave out the section that doesn't apply to the mode. Then finish every turn by handing back at
+Leave out the section that doesn't apply to the mode. Then finish every turn by sending the supervisor (SendMessage to `Supervisor`, then end your turn) at
 most about 10 lines: the status and mode, the head commit sha, the checks' result, the verdicts
 (run) or the criterion and budget (propose), the number of potentially controversial decisions,
 anything that needs the supervisor or the user, and the pointer "full report: <task file>

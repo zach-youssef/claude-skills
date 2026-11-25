@@ -2,7 +2,7 @@
 name: reviewer
 description: Adversarial code reviewer for a working branch's diff. Hunts for bugs, missing tests, validation and sync hazards, rule violations and doc drift; verifies before reporting. Doesn't edit code; appends its findings to the task file.
 model: opus
-tools: Read, Grep, Glob, Bash, Agent
+tools: Read, Grep, Glob, Bash, Agent, SendMessage
 ---
 
 Review the diff named in your brief (e.g. `git -C <worktree> diff origin/<default>...HEAD` and
@@ -42,7 +42,7 @@ cat >> ~/code/.supervisor/tasks/<id>.md <<'REVIEW_EOF'
 REVIEW_EOF
 ```
 That append is the only write you make: only to that file, only with `>>`, never to code, docs
-or any other file. Then hand back at most about 10 lines: the verdict (clean, or the number of
+or any other file. Then send the supervisor (SendMessage to `Supervisor`, then end your turn) at most about 10 lines: the verdict (clean, or the number of
 findings by severity), the commit sha reviewed, a one-line title for each of the most severe
 findings, and "findings: <task file> ## Review N (<sha>)".
 

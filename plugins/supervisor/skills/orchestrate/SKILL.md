@@ -28,8 +28,8 @@ task stays inline.
 
 **Models.** The supervisor runs on Opus, and so do planners, implementers, reviewers and
 readers by default (their definitions), with Sonnet for test-runners and fixers and Haiku for
-helpers. **Fable is the specialist for high-complexity planning and implementation:** pass
-`model: "fable"` on the Agent call for a `planner` or `implementer` when the task is one of
+helpers. **Fable is the specialist for high-complexity planning and implementation:** launch
+a `planner` or `implementer` with `--model fable` when the task is one of
 - a design that cuts across subsystems or repos (a new runtime mechanism, an API several
   consumers depend on, a change to how the DSL compiles);
 - novel algorithmic or numerical work (new GPU kernels, gradients, sorting or synchronization
@@ -38,7 +38,7 @@ helpers. **Fable is the specialist for high-complexity planning and implementati
 - a task that has failed two review rounds, or that a second implementer is taking over.
 
 Everything else stays on Opus. Write the model in the ledger's agent column
-(`implementer <id> (fable)`) and the reason in the task file's brief, so a resume re-spawns on
+(`implementer <name> <id> (fable)`) and the reason in the task file's brief, so a resume re-spawns on
 the same model. Reviewers stay on Opus unless the user says otherwise, so Fable's work still
 gets an independent adversarial read. The user may also ask for a Fable worker outright.
 
@@ -74,7 +74,40 @@ Some things limit parallelism on this machine:
 
 ## 3. Brief a worker
 
-Spawn workers in the background with `run_in_background`. Each brief contains:
+**Spawn every worker, the poller included, as a background session**, so it shows in the user's
+session list (`claude agents`) and survives a restart of the supervisor:
+
+    cd ~/code/.supervisor && claude --agent <type> --model <opus|sonnet|haiku|fable> \
+      --permission-mode <the supervisor's mode, normally auto> -n <name> --bg \
+      "Brief: ~/code/.supervisor/tasks/<id>.md. <one line: start, resume, or the step to take>"
+
+- **The cwd is `~/code/.supervisor`, not `~/code`:** the SessionStart hook prints the ledger and
+  "resume" to every session started in `~/code`, which would make the worker a second
+  supervisor. Briefs give absolute paths, so the cwd doesn't matter otherwise.
+- **The model and the permission mode are always explicit.** A worker in another mode than the
+  supervisor's stalls on prompts nobody sees, and cross-session messages between sessions in
+  different modes are held for approval.
+- `-n` names the session; it's the worker's address. Implementers, planners, readers and
+  experimenters take the task id; reviewers, test-runners and fixers add their role
+  (`<id>-review-2`, `<id>-test`, `<id>-fix`), since the implementer's session stays alive beside
+  them; the poller is `poller`.
+- **The supervisor's session is named `Supervisor`**, the address workers and the poller report
+  to: start it with `claude -n Supervisor`, or `/rename Supervisor` first thing on a resume. Only
+  one session may carry the name: rename or stop an old one. Workers send their handback with
+  `SendMessage` to `Supervisor` and end their turn. A worker idle after its turn wakes when a
+  message arrives, so relay with `SendMessage` to its name.
+- **Right after each spawn, subscribe to its next idle** (`SendMessage` to its name with
+  `notify_when_idle: true` and no message), and again after each relay. An idle notice with no
+  handback means it stopped without reporting (a crash, a rate limit, a full context): read
+  `claude logs <id>`, then resume it with a message or respawn it.
+- `claude agents --json` lists the sessions (`id`, `name`, `status`, `state`; `--all` adds
+  finished ones), `claude logs <id>` shows one's output, `claude stop <id>` stops it and
+  `claude rm <id>` removes a finished one from the list (its transcript stays). Stop and remove
+  a worker once its task no longer needs it.
+- Use the `Agent` tool only for an in-turn helper whose answer you need before you go on (a
+  quick `Explore` search), never for a worker with a ledger row.
+
+Each brief contains:
 - **Repo and branch:** the absolute repo path and a descriptive working-branch name, e.g.
   `zgal-growable-arrays`. Implementers make their own worktree at
   `~/code/.supervisor/worktrees/<repo>/<branch>` (the supervisor runs from `~/code`, which isn't a git
@@ -93,24 +126,26 @@ Spawn workers in the background with `run_in_background`. Each brief contains:
 
 **Reports go to the task file, not your context.** Every worker appends its full report to the
 **end** of the task file under its own heading, `## Report (<agent>, <sha or date>)` (reviewers
-`## Review N (<sha>)`), with the report's sections at `###`. It hands back at most about 10
+`## Review N (<sha>)`), with the report's sections at `###`. It hands back (SendMessage to `Supervisor`) at most about 10
 lines: the status, the commit sha, the verdict or counts, and that heading as the pointer. When
 a heading repeats (a rerun), the last one counts. Read the full report only when the handback
 isn't enough to decide the next step. Reviewers and test-runners have no Write or Edit tools, so
 they append with one quoted heredoc (`cat >> <task file>`), limited to that file. Planners write
 only under `~/code/.supervisor/plans/` and to their task file: they write the plan there and
-hand back the pointer. Helpers return
-their result inline by default, since it's usually text you need right away; ask for the task
+hand back the pointer. Helpers send
+their whole result by default, since it's usually text you need right away; ask for the task
 file in the brief when it's long.
 
 ## 3b. Keep state durable so everything can resume
 
-A session can be interrupted at any moment, and worker contexts and agent ids don't survive it.
+A session can be interrupted at any moment. Background workers outlive the supervisor, but they can
+stop or fail too, and nothing in a worker's context is safe until it's on disk.
 So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, not a repo):
 
 - **`ledger.md`:** one row per active task:
   - id (`<repo>-<branch>`, unique across repos), repo, branch, worktree;
-  - agent: the type, plus its id *for this session only* (ids don't survive a restart);
+  - agent: the type and its background session's name and id (`implementer site-ktor3 dc049bc1`),
+    plus `(fable)` or `(sonnet)` where the model isn't the definition's;
   - stage: `planned` | `implementing` | `review N` (reviewer running) | `addressing N`
     (implementer on findings) | `fixing` | `pushed` | `ci` | `awaiting-merge` | `approved` |
     `merging` | `merged` (absorb pending) | `blocked` | `stalled (rate limit, resets HH:MM)` |
@@ -166,6 +201,7 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
 - **Worktrees** (`worktrees/<repo>/<branch>`) keep the code, committed or not.
 
 **Resuming** (a SessionStart hook prints the ledger in `~/code`; otherwise read it first):
+0. Name this session `Supervisor` if it isn't (`/rename Supervisor`; §3).
 1. Reconcile each row with reality in **both directions**, after `git -C <repo> fetch`:
    - at `merging` or later, the merged check below comes first; once it passes, a missing
      branch and worktree are expected;
@@ -188,14 +224,16 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
 
    Where reality is ahead, move the row forward. Where it's behind (e.g. `pushed` but the branch
    isn't on the remote), move it back and redo that step.
-2. Agent ids from before the restart are gone, so everything is re-spawned fresh:
+2. Check `claude agents --json --all` for each row's session. One still running carries on: tell it
+   the supervisor restarted only if it's waiting on you. Respawn the rest fresh:
    - implementers and fixers get their task file, the worktree and "resume from your
      checkpoints", plus whatever their stage calls for: "address review N findings in <task
      file>" for `addressing N`, the test-runner report pointer for `fixing`, the push
      instruction for an approved review;
-   - reviewers and test-runners lost their context, so run fresh ones, unless their section is
-     already in the task file (step 1).
-3. Respawn the poller if `watch.py list` shows active watches or undelivered events (§3c).
+   - reviewers and test-runners whose session isn't running get fresh ones, unless their section
+     is already in the task file (step 1).
+3. Respawn the poller if it isn't running and `watch.py list` shows active watches or undelivered
+   events (§3c).
 4. Re-ask the user any pending decision. Briefly tell them what was resumed.
 
 ## 3c. Waiting: the poller owns every watch
@@ -211,7 +249,8 @@ requests and the bookkeeping is in one file.
   `cmd <shell command>` (done at exit 0, optional `--timeout-min`), `cron '<5 fields>'`
   (recurring, local time, no expiry: use it instead of session crons, which expire after 7
   days) and `at <YYYY-MM-DDTHH:MM>`. Ids are `<task id>-<what>`, e.g.
-  `personal-site-deps-batch-ci`; `--note` says what it's for; `--notify` defaults to `main`.
+  `personal-site-deps-batch-ci`; `--note` says what it's for; `--notify` defaults to `main`, which
+  the poller delivers to `Supervisor`; a worker passes its own session name.
 - **Adding a watch** is a `watch.py add` by whoever needs it; the poller picks it up on its next
   pass. Remove a watch once its result has been acted on (`watch.py remove`), and cron watches
   when the user withdraws the standing request.
@@ -221,11 +260,11 @@ requests and the bookkeeping is in one file.
 - **Workers** wait for a watch with `watch.py await <id>` in a background shell
   (`run_in_background`): it reads only the local file, so it costs nothing and never touches
   GitHub. They don't run `gh run watch` loops or spawn waiters.
-- **Keeping it alive:** spawn the poller (`subagent_type: poller`, `run_in_background`) when the
+- **Keeping it alive:** spawn the poller (§3's launch, `--agent poller --model haiku -n poller`) when the
   first watch is added in a session and on every resume while `watch.py list` shows an active
   watch or an undelivered event. It's stateless (everything is in the file), so a fresh one
   just carries on; if it reports a broken state file, fix that before respawning. One poller at
-  a time: check `ListAgents` before spawning another.
+  a time: check `claude agents --json` for a running one before spawning another.
 
 ## 4. Lifecycle of a change
 
@@ -234,10 +273,10 @@ requests and the bookkeeping is in one file.
 2. Spawn a `reviewer` on the branch's diff (`git -C <worktree> diff origin/<default>...HEAD`),
    with the brief's goal, the task file and the round number N. Set the stage first
    (`ledger.py set <id> stage="review N" commit=<sha>`), and the agent once it exists
-   (`agent="reviewer <agent-id>"`). It writes its findings to the task file under
+   (`agent="reviewer <session name> <id>"`). It writes its findings to the task file under
    `## Review N (<sha>)` itself.
 3. Relay the findings **by pointer**: tell the implementer "address review N findings in <task
-   file>" (SendMessage to the same agent, so it keeps its context), without pasting them. It
+   file>" (SendMessage to its session name, so it keeps its context), without pasting them. It
    fixes each finding or rebuts it with reasons. Then review again, for **at most two rounds**
    per change. After round 2, the implementer (or a fixer, for nits) addresses the remaining
    findings without a third review; list every finding it rebuts or leaves open, with both
@@ -269,7 +308,7 @@ requests and the bookkeeping is in one file.
    reviews the full diff as in round 1, still checking the previous review's findings.
 4. Once the review is clean, tell the implementer to push the working branch.
 
-   In steps 3–6, if the implementer isn't alive in this session (a restart, or it was stopped),
+   In steps 3–6, if the implementer's session isn't running (`claude agents --json`; it failed, or it was stopped),
    spawn a fresh one with the task file and "resume", plus the review pointer or the push
    instruction.
 5. Record the pushed commit (`git -C <worktree> rev-parse HEAD`, which must equal
@@ -333,7 +372,7 @@ requests and the bookkeeping is in one file.
        once a project holds five or more such lines, queue a docs-only task on that repo
        (branch `docs-sweep-<YYYY-MM-DD>`) for a Sonnet `fixer`, with the lines in its brief.
        It writes them into the repo's docs, and the sweep gets one review round from a
-       reviewer run on Sonnet (`model: "sonnet"`; it checks each line landed where the docs'
+       reviewer run on Sonnet (`--model sonnet`; it checks each line landed where the docs'
        structure puts it and matches the code), then CI and the merge ask; delete the lines
        once it merges;
      - preferences and decisions go in that repo's memory dir (see the `projects` memory).

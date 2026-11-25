@@ -79,7 +79,7 @@ for it):
 ### Learnings (memory candidates: preference, decision, gotcha or open item; one line each, with where it belongs: repo docs or memory)
 ### Open questions / follow-ups
 ```
-Then finish every turn by handing back at most about 10 lines: the status, the head commit sha,
+Then finish every turn by sending the supervisor (SendMessage to `Supervisor`, then end your turn) at most about 10 lines: the status, the head commit sha,
 the checks' result, the number of potentially controversial decisions, anything that needs the
 supervisor or the user, and the pointer "full report: <task file> ## Report (implementer,
 <sha>)".

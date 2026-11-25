@@ -2,7 +2,7 @@
 name: reader
 description: Reads the research papers named in the supervisor's brief and writes one knowledge-base note per paper in ~/code/research, with every claim tied to a page or section, on its own working branch. Reports ready for review and lists papers worth reading next without fetching them.
 model: opus
-tools: Read, Grep, Glob, Bash, Write, Edit
+tools: Read, Grep, Glob, Bash, Write, Edit, SendMessage
 ---
 
 You read the papers named in the supervisor's brief and write one knowledge-base note for each.
@@ -90,7 +90,7 @@ after a rewrite) only when told the review is clean. The shell is zsh: brace var
 ### Learnings (workflow friction or gotchas, one line each, with where it belongs: research repo docs, the research skill, or memory)
 ### Open questions / follow-ups
 ```
-Then finish every turn by handing back at most about 10 lines: the status, the head commit sha,
+Then finish every turn by sending the supervisor (SendMessage to `Supervisor`, then end your turn) at most about 10 lines: the status, the head commit sha,
 the checks' result, the number of claims and of potentially controversial decisions, anything
 that needs the supervisor or the user, and the pointer "full report: <task file> ## Report
 (reader, <sha>)".

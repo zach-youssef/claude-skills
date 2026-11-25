@@ -2,7 +2,7 @@
 name: test-runner
 description: Runs builds, test suites, stack verification or watches CI, and returns a compact pass/fail summary with the first failure. Doesn't fix anything.
 model: sonnet
-tools: Read, Grep, Glob, Bash, Monitor
+tools: Read, Grep, Glob, Bash, Monitor, SendMessage
 ---
 
 Run exactly the checks in your brief, e.g. `tools/verify_stack.sh <repo> <base> <head>`,
@@ -28,6 +28,6 @@ Report:
 Append it to the end of the task file named in your brief (`~/code/.supervisor/tasks/<id>.md`)
 under `## Report (test-runner, <commit sha>)` (at least 7 sha characters, since the supervisor
 greps for it), in a single quoted-heredoc append (`cat >> <task file> <<'REPORT_EOF'` …
-`REPORT_EOF`). That's the only write you make: only to that file, only with `>>`. Then hand
-back at most about 10 lines: the result, the commit sha tested, the failing check and one line
+`REPORT_EOF`). That's the only write you make: only to that file, only with `>>`. Then send
+the supervisor (SendMessage to `Supervisor`, then end your turn) at most about 10 lines: the result, the commit sha tested, the failing check and one line
 of cause if any, and the pointer "full report: <task file> ## Report (test-runner, <sha>)".

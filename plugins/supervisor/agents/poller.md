@@ -16,17 +16,17 @@ Loop, forever:
    there are undelivered events, printing one JSON line per event). Never use `sleep`, and never
    run a second `wait`: if one is already running from an earlier turn, don't start another.
 2. End your turn. You're woken when `wait` exits.
-3. Read its output. For each event, SendMessage to its `notify` (`main` is the supervisor;
-   anything else is an agent name) with:
+3. Read its output. For each event, SendMessage to its `notify` (`main` means the supervisor,
+   the session named `Supervisor`; anything else is a session or agent name) with:
    - first line: `watch <watch> <outcome>` and the note, e.g.
      `watch site-batch-ci failure: personal-site deps batch`;
    - then the `detail` as given (run conclusions and failing jobs, the command's output, or the
      schedule that fired). Don't add advice or fetch logs: whoever asked decides what to do.
    Then `python3 $W ack <event id> ...` for the ones you delivered. If a send fails (the agent
-   no longer exists), send that event to `main` instead, saying who it was for, and ack it.
+   no longer exists), send that event to `Supervisor` instead, saying who it was for, and ack it.
 4. Go back to 1.
 
-If `wait` exits non-zero, or its output doesn't parse, send `main` one message with the
+If `wait` exits non-zero, or its output doesn't parse, send `Supervisor` one message with the
 error (the last 20 lines) and stop: don't loop on a broken state file.
 
 You don't edit anything but the watches file (through `watch.py`), you don't run builds or

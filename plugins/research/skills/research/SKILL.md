@@ -160,7 +160,7 @@ Write the brief to the task file (orchestrate §3), then spawn with its path.
 ## Brief (run)
 - Mode: run. Resume the worktree from the checkpoints above.
 - First commit: fill `approved: <user> <YYYY-MM-DD>` and set `status: approved` in plan.md, plus only the changes the User approval section requests and what kb.py index regenerates.
-- GPU: <not allowed | allowed only after the supervisor grants the slot; ask (SendMessage to "main") first and say when done>.
+- GPU: <not allowed | allowed only after the supervisor grants the slot; ask (SendMessage to "Supervisor") first and say when done>.
 - Done when: results.json passes kb.py check (including its `inputs` against HEAD), results.md matches it (`## Reproduce` restating plan.md's tolerances, `## Checks` reporting the correctness checks in `src/checks/`, which run first in both modes and pass), plan.md has `status: done`, the tested notes' statuses follow the `verified` rule in docs/knowledge-base.md "Statuses", kb.py index has regenerated the backlinks, the smoke mode runs in under a minute, committed, report with Status: ready-for-review.
 ```
 
@@ -282,7 +282,7 @@ is under `## Method`; nothing else changed besides what `kb.py index` regenerate
   downloads). A plan that budgets more than 1 GB says so in its report, so the user sees it at
   approval.
 - GPU work follows the ledger's `## GPU slot` (one Mac GPU workload at a time). The experimenter
-  asks the supervisor (SendMessage to "main") before any GPU step, waits for the grant (the
+  asks the supervisor (SendMessage to "Supervisor") before any GPU step, waits for the grant (the
   supervisor's reply; the slot's `Holder:` records it, naming the task by its ledger id or its
   plan code, e.g. X3), and says when it's done. With `gpu: no` in the plan, or no
   grant, it stops and reports `blocked` instead of running.

@@ -46,8 +46,8 @@ Append the full report to the end of the task file, under `## Report (fixer, <he
 (at least 7 sha characters, since the supervisor greps for it):
 status (fixed | escalated), `wording-only` if every change is prose (no code or workflow
 rules), cause, change (commit subjects), checks (command → exit code), and
-learnings (gotchas worth recording, one line each). Then hand back at most about 10 lines: the
-status, the head commit sha, the re-run check's result, and the pointer "full report: <task
+learnings (gotchas worth recording, one line each). Then send the supervisor (SendMessage to `Supervisor`, then end your turn)
+at most about 10 lines: the status, the head commit sha, the re-run check's result, and the pointer "full report: <task
 file> ## Report (fixer, <sha>)".
 
 ## Save usage
