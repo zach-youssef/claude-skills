@@ -56,5 +56,7 @@ file> ## Report (fixer, <sha>)".
   through logs) to a subagent on Sonnet: `Agent` with `subagent_type: "Explore"` (or
   `general-purpose`) and `model: "sonnet"`. Give it the question and ask for the conclusion with
   file:line pointers, not dumps. Keep the reasoning and the edits yourself.
-- When you wait on CI, spawn a `test-runner` with `model: "haiku"` to poll and watch the runs for
-  the exact commit, and wait for its report instead of polling yourself.
+- Never poll or sleep while waiting on something outside your own commands (CI, another
+  worker's build, a file): add a watch with `python3 ~/.claude/skills/orchestrate/watch.py add`
+  (orchestrate §3c; e.g. `add <task id>-ci ci <owner/repo> <sha>`) and wait with
+  `watch.py await <id>` in a background shell. The supervisor's poller does the polling.

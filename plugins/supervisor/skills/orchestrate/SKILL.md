@@ -195,7 +195,37 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
      instruction for an approved review;
    - reviewers and test-runners lost their context, so run fresh ones, unless their section is
      already in the task file (step 1).
-3. Re-ask the user any pending decision. Briefly tell them what was resumed.
+3. Respawn the poller if `watch.py list` shows active watches or undelivered events (§3c).
+4. Re-ask the user any pending decision. Briefly tell them what was resumed.
+
+## 3c. Waiting: the poller owns every watch
+
+Nobody polls or sleeps while waiting for something outside their own work: CI on a commit,
+another worker's build finishing, a file appearing, a scheduled check. One Haiku `poller` agent
+runs every watch in `~/code/.supervisor/watches.json` every 3 minutes (scheduled watches fire at
+their time) and messages whoever asked when it completes, so waits cost no Opus or Sonnet
+requests and the bookkeeping is in one file.
+
+- The tool is `watch.py` next to this skill (`python3 ~/.claude/skills/orchestrate/watch.py`;
+  the docstring is the reference, `test_watch.sh` the tests). Kinds: `ci <owner/repo> <sha>`,
+  `cmd <shell command>` (done at exit 0, optional `--timeout-min`), `cron '<5 fields>'`
+  (recurring, local time, no expiry: use it instead of session crons, which expire after 7
+  days) and `at <YYYY-MM-DDTHH:MM>`. Ids are `<task id>-<what>`, e.g.
+  `personal-site-deps-batch-ci`; `--note` says what it's for; `--notify` defaults to `main`.
+- **Adding a watch** is a `watch.py add` by whoever needs it; the poller picks it up on its next
+  pass. Remove a watch once its result has been acted on (`watch.py remove`), and cron watches
+  when the user withdraws the standing request.
+- **The supervisor** gets events as messages from the poller and acts on them as on a worker
+  report. A cron event's note is a reminder of a standing instruction the user gave (the
+  memory it names), never new authority.
+- **Workers** wait for a watch with `watch.py await <id>` in a background shell
+  (`run_in_background`): it reads only the local file, so it costs nothing and never touches
+  GitHub. They don't run `gh run watch` loops or spawn waiters.
+- **Keeping it alive:** spawn the poller (`subagent_type: poller`, `run_in_background`) when the
+  first watch is added in a session and on every resume while `watch.py list` shows an active
+  watch or an undelivered event. It's stateless (everything is in the file), so a fresh one
+  just carries on; if it reports a broken state file, fix that before respawning. One poller at
+  a time: check `ListAgents` before spawning another.
 
 ## 4. Lifecycle of a change
 
@@ -245,14 +275,14 @@ So all orchestration state lives on disk, in `~/code/.supervisor/` (not memory, 
 5. Record the pushed commit (`git -C <worktree> rev-parse HEAD`, which must equal
    `origin/<branch>`) in the ledger (`ledger.py set <id> stage=ci commit=<sha>`, then
    `ci=<run ids>` once the runs exist).
-   Watch CI yourself with one background shell loop (`run_in_background`): poll
-   `gh run list --commit <sha>` until the runs appear, then `gh run watch <id> --exit-status` on
-   **every** run on that commit, one watch at a time (several at once trip GitHub's secondary
-   rate limit, and a watch that exits 1 with no run output means "unknown", not red: check
-   `gh run view` before calling it a failure). The loop costs no tokens until it exits. Spawn a
-   `test-runner` instead (Haiku when it's CI only) when the commit also needs local hardware
-   checks (MoltenVK GPU tests), so one worker runs both and reports once. Until a repo has CI,
-   its local stack verification is the check.
+   Register a CI watch for that commit (`watch.py add <id>-ci --note "<what>" ci <owner/repo>
+   <sha>`, §3c) and record its id in the ledger's `ci` column; the poller messages you when every
+   run on the commit has finished, with each run's conclusion and the jobs that weren't green. An
+   `unknown` outcome (gh kept failing, usually the secondary rate limit) isn't red: check
+   `gh run view` before calling it a failure. Spawn a `test-runner` as well when the commit also
+   needs local hardware checks (MoltenVK GPU tests); it waits on the same watch with
+   `watch.py await` instead of polling GitHub itself. Until a repo has CI, its local stack
+   verification is the check.
 
    On failure, the test-runner's report is in the task file: point a `fixer` at it for
    mechanical fixes, or the implementer for design problems (`fixing`). Fixes are squashed into

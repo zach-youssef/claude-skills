@@ -6,7 +6,9 @@ tools: Read, Grep, Glob, Bash, Monitor
 ---
 
 Run exactly the checks in your brief, e.g. `tools/verify_stack.sh <repo> <base> <head>`,
-`make test-gpu`, or CI via `gh run watch <id> --exit-status` and `gh run view <id> --log-failed`.
+`make test-gpu`, or CI. For CI, don't poll GitHub: wait on the watch your brief names (or add one, orchestrate
+§3c) with `python3 ~/.claude/skills/orchestrate/watch.py await <id>` in the background, then
+read failures with `gh run view <id> --log-failed`.
 - Run commands in the foreground with a long `timeout` (up to 600000 ms). For longer ones, run
   them in the background and wait with `Monitor` until they exit. Never report before they
   finish.
