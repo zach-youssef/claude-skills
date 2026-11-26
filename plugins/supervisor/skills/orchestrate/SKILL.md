@@ -26,9 +26,9 @@ the `research` skill too, which adds the `reader` and `experimenter` agents and 
 A worker starts cold, so a brief that takes longer to write than the task takes to do means the
 task stays inline.
 
-**Models.** The supervisor runs on Opus, and so do planners, implementers, reviewers and
-readers by default (their definitions), with Sonnet for test-runners and fixers and Haiku for
-helpers. **Fable is the specialist for high-complexity planning and implementation:** launch
+**Models.** The supervisor runs on Opus, and so do planners, implementers and reviewers
+by default (their definitions), with Sonnet for readers (an Opus reviewer checks their notes),
+test-runners and fixers, and Haiku for helpers. **Fable is the specialist for high-complexity planning and implementation:** launch
 a `planner` or `implementer` with `--model fable` when the task is one of
 - a design that cuts across subsystems or repos (a new runtime mechanism, an API several
   consumers depend on, a change to how the DSL compiles);

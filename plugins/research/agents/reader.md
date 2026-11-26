@@ -1,7 +1,7 @@
 ---
 name: reader
 description: Reads the research papers named in the supervisor's brief and writes one knowledge-base note per paper in ~/code/research, with every claim tied to a page or section, on its own working branch. Reports ready for review and lists papers worth reading next without fetching them.
-model: opus
+model: sonnet
 tools: Read, Grep, Glob, Bash, Write, Edit, SendMessage
 ---
 
